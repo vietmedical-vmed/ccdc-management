@@ -14,42 +14,60 @@
     { path: "/ngan-sach",  label: "Ngân sách" },
   ];
 
+  const initials = (u) => {
+    const src = (u.ho_ten || u.username || "").trim();
+    if (!src) return "CT";
+    const parts = src.split(/\s+/);
+    const s = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 2);
+    return s.toUpperCase();
+  };
+
   function Shell({ user, onLogout }) {
     const path = R.useRoute();
     const Screen = R.get(path);
+    const subtitle = [user.role || "—", user.mien ? "Miền " + user.mien : "Toàn hệ thống"].join(" · ");
 
     return h("div", { className: "min-h-screen bg-slate-50" },
       h("header", { className: "bg-white border-b border-slate-200" },
-        h("div", { className: "max-w-7xl mx-auto px-4 h-14 flex items-center gap-4" },
-          h("div", { className: "flex items-center gap-2" },
-            h("div", {
-              className: "w-8 h-8 rounded-md bg-blue-500 text-white grid place-items-center font-bold text-sm",
-            }, "CT"),
-            h("div", { className: "font-semibold text-slate-900 text-sm" }, "Quản lý CCDC & Thiết bị"),
+        h("div", { className: "max-w-7xl mx-auto px-4" },
+          // Hàng trên: avatar + tiêu đề · credit góc phải + nút
+          h("div", { className: "flex items-start justify-between pt-3 gap-4" },
+            h("div", { className: "flex items-center gap-3" },
+              h("div", {
+                className: "w-11 h-11 rounded-full bg-blue-500 text-white grid place-items-center font-bold text-sm shrink-0",
+              }, initials(user)),
+              h("div", { className: "leading-tight" },
+                h("div", { className: "font-bold text-slate-900 text-base md:text-lg" }, "QUẢN LÝ CCDC & THIẾT BỊ"),
+                h("div", { className: "text-xs text-slate-500 mt-0.5" }, subtitle),
+              ),
+            ),
+            h("div", { className: "flex flex-col items-end gap-2" },
+              h("div", { className: "text-[11px] text-slate-400 italic hidden md:block" },
+                "Designed and developed by ",
+                h("span", { className: "font-semibold text-slate-500 not-italic" }, "Do Hoang Giang"),
+              ),
+              h("div", { className: "flex items-center gap-2" },
+                h("button", {
+                  onClick: () => window.location.reload(),
+                  className: "flex items-center gap-1.5 text-xs text-slate-600 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-md",
+                }, h("span", null, "⟳"), "Reload"),
+                h("button", {
+                  onClick: onLogout,
+                  className: "flex items-center gap-1.5 text-xs text-slate-600 hover:text-red-600 hover:border-red-200 border border-slate-200 px-2.5 py-1.5 rounded-md",
+                }, h("span", null, "⎋"), "Đăng xuất"),
+              ),
+            ),
           ),
-          h("nav", { className: "flex items-center gap-1 ml-4 flex-1" },
+          // Hàng dưới: tab gạch chân
+          h("nav", { className: "flex items-center gap-5 md:gap-6 mt-3 overflow-x-auto" },
             NAV.map((it) => h("button", {
               key: it.path,
               onClick: () => R.navigate(it.path),
-              className: "px-3 py-1.5 rounded-md text-sm font-medium " +
+              className: "relative px-0.5 pb-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors " +
                 (path === it.path
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-slate-600 hover:bg-slate-100"),
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-600 hover:text-slate-900"),
             }, it.label)),
-          ),
-          h("div", { className: "flex items-center gap-3" },
-            h("div", { className: "text-xs text-slate-600" },
-              h("div", { className: "font-semibold text-slate-900" }, user.ho_ten || user.username),
-              h("div", null, user.role || "—"),
-            ),
-            h("button", {
-              onClick: onLogout,
-              className: "text-xs text-slate-600 hover:text-red-600 border border-slate-200 px-2 py-1 rounded",
-            }, "Đăng xuất"),
-            h("div", { className: "text-[10px] text-slate-400 italic border-l border-slate-200 pl-3 hidden md:block" },
-              "Designed and developed by ",
-              h("span", { className: "font-semibold text-slate-500 not-italic" }, "Do Hoang Giang"),
-            ),
           ),
         ),
       ),
