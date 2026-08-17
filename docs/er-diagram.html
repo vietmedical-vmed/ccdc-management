@@ -1,0 +1,158 @@
+<title>Sơ đồ quan hệ — Platform CCDC & Thiết bị</title>
+<style>
+  :root{
+    --fg:#1e293b; --muted:#64748b; --card:#f8fafc; --line:#cbd5e1;
+    --accent:#2563eb; --accent-bg:rgba(37,99,235,.08); --page:#ffffff;
+  }
+  :root[data-theme="dark"]{ --fg:#e2e8f0; --muted:#94a3b8; --card:#1e293b;
+    --line:#475569; --accent:#60a5fa; --accent-bg:rgba(96,165,250,.12); --page:#0f172a; }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --fg:#e2e8f0; --muted:#94a3b8; --card:#1e293b;
+      --line:#475569; --accent:#60a5fa; --accent-bg:rgba(96,165,250,.12); --page:#0f172a; }
+  }
+  body{ margin:0; background:var(--page); color:var(--fg);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap{ max-width:1000px; margin:0 auto; padding:28px 20px 48px; }
+  h1{ font-size:22px; margin:0 0 6px; }
+  p.lede{ color:var(--muted); margin:0 0 20px; }
+  figure{ margin:0; }
+  svg{ width:100%; max-width:1000px; height:auto; display:block; color:var(--fg); }
+  figcaption{ color:var(--muted); font-size:13px; margin-top:12px; }
+  .legend{ display:flex; flex-wrap:wrap; gap:16px; margin:18px 0 0; font-size:13px; color:var(--muted); }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .sw{ width:22px; height:0; border-top:2px solid var(--fg); }
+  .sw.acc{ border-color:var(--accent); border-top-width:3px; }
+  .sw.dash{ border-top-style:dashed; }
+</style>
+<div class="wrap">
+  <h1>Sơ đồ quan hệ — Platform CCDC &amp; Thiết bị</h1>
+  <p class="lede">Một master dùng chung (<code>dm_vat_tu</code>); vai trò &amp; dữ liệu CCDC xếp lớp bên trên. Cùng một mã có thể vừa vào sổ tài sản, vừa bán cho khách.</p>
+
+  <figure>
+  <svg viewBox="0 0 940 620" role="img"
+    aria-label="dm_vat_tu là master trung tâm. Nhánh trái: miền sales bán cho khách với mọi phan_loai. Nhánh phải: miền CCDC gồm ccdc_thuoc_tinh 1-1, tai_san 1-N, giao_dich ledger, ngan_sach và cau_hinh_khau_hao. Các view tổng hợp lấy dữ liệu từ giao_dich, tai_san, ngan_sach và master.">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+      </marker>
+      <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+      </marker>
+    </defs>
+
+    <!-- ================= MASTER ================= -->
+    <g>
+      <rect x="360" y="22" width="210" height="94" rx="9" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="2"/>
+      <text x="465" y="43" text-anchor="middle" font-size="13" font-weight="700" fill="var(--accent)">dm_vat_tu — MASTER</text>
+      <text x="374" y="63" font-size="12">ma_bravo (PK)</text>
+      <text x="374" y="81" font-size="12" font-weight="600">phan_loai: TH · CCDC · TB</text>
+      <text x="374" y="99" font-size="12" fill="var(--muted)">gia_von · gia_ban · ncc…</text>
+    </g>
+
+    <!-- ================= SALES ================= -->
+    <g>
+      <rect x="58" y="250" width="214" height="86" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="165" y="272" text-anchor="middle" font-size="13" font-weight="700">MIỀN SALES (order)</text>
+      <text x="72" y="292" font-size="12">phiếu bán → khách hàng</text>
+      <text x="72" y="310" font-size="12" fill="var(--muted)">ref ma_bravo</text>
+      <text x="72" y="328" font-size="12" fill="var(--muted)">mọi phan_loai (kể cả CCDC)</text>
+    </g>
+
+    <!-- ============ CCDC DOMAIN group ============ -->
+    <rect x="612" y="132" width="308" height="392" rx="12" fill="none" stroke="var(--line)" stroke-dasharray="3 4"/>
+    <text x="628" y="150" font-size="11" font-weight="700" fill="var(--muted)">MIỀN CCDC / TÀI SẢN</text>
+
+    <!-- ccdc_thuoc_tinh -->
+    <g>
+      <rect x="646" y="162" width="240" height="60" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="766" y="182" text-anchor="middle" font-size="12.5" font-weight="700">ccdc_thuoc_tinh (1:1)</text>
+      <text x="660" y="200" font-size="11.5" fill="var(--muted)">quan_ly_serial · so_thang_su_dung</text>
+      <text x="660" y="216" font-size="11.5" fill="var(--muted)">chỉ CCDC / TB</text>
+    </g>
+
+    <!-- tai_san -->
+    <g>
+      <rect x="646" y="238" width="240" height="72" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="766" y="258" text-anchor="middle" font-size="12.5" font-weight="700">tai_san — tồn / đăng ký</text>
+      <text x="660" y="276" font-size="11.5">serial · vi_tri · pic · tinh_trang</text>
+      <text x="660" y="293" font-size="11.5" fill="var(--muted)">so_luong · nguyen_gia · ngay_mua</text>
+    </g>
+
+    <!-- giao_dich -->
+    <g>
+      <rect x="646" y="326" width="240" height="74" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="766" y="346" text-anchor="middle" font-size="12.5" font-weight="700">giao_dich — LEDGER giá trị</text>
+      <text x="660" y="364" font-size="11.5">ton_dau · nhap_moi · huy</text>
+      <text x="660" y="381" font-size="11.5">mat · dieu_chuyen</text>
+      <text x="660" y="397" font-size="11.5" fill="var(--muted)">thanh_tien · ky (auto)</text>
+    </g>
+
+    <!-- cau_hinh + ngan_sach -->
+    <g>
+      <rect x="646" y="440" width="115" height="66" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="703" y="459" text-anchor="middle" font-size="11.5" font-weight="700">cau_hinh_khau_hao</text>
+      <text x="703" y="477" text-anchor="middle" font-size="11" fill="var(--muted)">CCDC 24 · TB 48</text>
+      <text x="703" y="493" text-anchor="middle" font-size="11" fill="var(--muted)">(tháng)</text>
+    </g>
+    <g>
+      <rect x="771" y="440" width="115" height="66" rx="9" fill="var(--card)" stroke="var(--line)"/>
+      <text x="828" y="459" text-anchor="middle" font-size="11.5" font-weight="700">ngan_sach</text>
+      <text x="828" y="477" text-anchor="middle" font-size="11" fill="var(--muted)">budget FY</text>
+      <text x="828" y="493" text-anchor="middle" font-size="11" fill="var(--muted)">× phan_loai</text>
+    </g>
+
+    <!-- ================= VIEWS ================= -->
+    <rect x="300" y="452" width="300" height="150" rx="12" fill="none" stroke="var(--line)" stroke-dasharray="3 4"/>
+    <text x="316" y="470" font-size="11" font-weight="700" fill="var(--muted)">VIEWS — tổng hợp</text>
+    <g font-size="11.5">
+      <rect x="314" y="480" width="132" height="34" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="380" y="501" text-anchor="middle">v_dm_ccdc</text>
+      <rect x="454" y="480" width="132" height="34" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="520" y="501" text-anchor="middle">v_gia_tri_con_lai</text>
+      <rect x="314" y="522" width="132" height="34" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="380" y="543" text-anchor="middle">v_gia_tri_theo_ky</text>
+      <rect x="454" y="522" width="132" height="34" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="520" y="543" text-anchor="middle">v_budget_canh_bao</text>
+    </g>
+
+    <!-- ================= ARROWS ================= -->
+    <!-- master -> sales (accent, the crux: CCDC vẫn bán được) -->
+    <line x1="392" y1="116" x2="205" y2="248" stroke="var(--accent)" stroke-width="3" marker-end="url(#arA)"/>
+    <text x="243" y="183" font-size="12" font-weight="700" fill="var(--accent)">bán · mọi phan_loai</text>
+
+    <!-- master -> ccdc_thuoc_tinh (1:1) -->
+    <line x1="570" y1="55" x2="644" y2="182" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+    <text x="600" y="120" font-size="11.5">1:1 · CCDC/TB</text>
+
+    <!-- master -> tai_san (1:N) -->
+    <line x1="570" y1="90" x2="644" y2="262" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+    <text x="585" y="205" font-size="11.5">1:N</text>
+
+    <!-- tai_san -> giao_dich -->
+    <line x1="766" y1="310" x2="766" y2="324" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+    <text x="778" y="321" font-size="11" fill="var(--muted)">huy/mat → giá trị còn lại</text>
+
+    <!-- cau_hinh -> giao_dich -->
+    <line x1="703" y1="440" x2="730" y2="402" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+
+    <!-- master -> v_dm_ccdc (lọc) -->
+    <path d="M 400,116 C 330,300 350,420 380,478" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+    <text x="300" y="345" font-size="11" fill="var(--muted)">phan_loai ∈ (CCDC,TB)</text>
+
+    <!-- giao_dich -> views (aggregate) -->
+    <path d="M 646,375 C 590,420 590,450 592,490" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+    <text x="560" y="430" font-size="11" fill="var(--muted)">aggregate</text>
+
+    <!-- ngan_sach -> v_budget -->
+    <path d="M 828,506 C 770,545 660,548 588,540" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+    <text x="690" y="560" font-size="11" fill="var(--muted)">budget</text>
+  </svg>
+  <figcaption><strong>Cùng một <code>ma_bravo</code> chảy về hai miền:</strong> mũi tên xanh = bán cho khách (mọi <code>phan_loai</code>); nhánh phải = quản lý tài sản nội bộ (chỉ CCDC/TB). Không nhân đôi danh mục — tài sản, giá trị và budget đều suy ra từ <code>giao_dich</code>.</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span><span class="sw acc"></span> bán cho khách (crux)</span>
+    <span><span class="sw"></span> quan hệ khóa ngoại (1:1 / 1:N)</span>
+    <span><span class="sw dash"></span> nguồn dữ liệu cho view (aggregate)</span>
+  </div>
+</div>

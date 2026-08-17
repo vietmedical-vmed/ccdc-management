@@ -1,0 +1,14 @@
+# Secrets — KHÔNG push (chứa service_role key / thông tin nhạy cảm)
+scripts/import_ton_ccdc.py
+supabase/.temp/
+supabase/.branches/
+.env
+.env.*
+*.key
+
+# OS / editor
+Thumbs.db
+.DS_Store
+
+# Dữ liệu Excel thật — không push
+*.xlsx

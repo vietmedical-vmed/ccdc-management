@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Dashboard CCDC & Thiết bị</title>
+<style>
+  :root{
+    color-scheme: light;
+    --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --accent:#2a78d6; --accent-weak:rgba(42,120,214,.10);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+      --accent:#3987e5; --accent-weak:rgba(57,135,229,.14);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --accent:#3987e5; --accent-weak:rgba(57,135,229,.14);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;}
+  .num{font-variant-numeric:tabular-nums}
+  #root{max-width:1120px;margin:0 auto;padding:20px 18px 56px}
+
+  header.hd{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .logo{width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:14px}
+  .hd h1{font-size:18px;margin:0}
+  .hd .sub{color:var(--muted);font-size:12.5px}
+
+  nav.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  nav.tabs button{appearance:none;border:0;background:transparent;color:var(--ink2);
+    font:inherit;font-weight:600;padding:9px 13px;border-radius:8px 8px 0 0;cursor:pointer;
+    border-bottom:2px solid transparent;margin-bottom:-1px}
+  nav.tabs button:hover{background:var(--accent-weak)}
+  nav.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+
+  .grid-kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+  @media(max-width:960px){.grid-kpi{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:560px){.grid-kpi{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .kpi .lbl{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .kpi .val{font-size:23px;font-weight:700;letter-spacing:-.02em}
+  .kpi .val small{font-size:12px;color:var(--muted);font-weight:600;margin-left:3px}
+  .kpi .cap{color:var(--ink2);font-size:11.5px;margin-top:4px}
+
+  h2.sec{font-size:14px;margin:22px 0 10px;color:var(--ink2);font-weight:700}
+
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .filters select,.filters input{font:inherit;padding:6px 9px;border:1px solid var(--border);
+    border-radius:8px;background:var(--surface);color:var(--ink)}
+  .filters input{min-width:150px}
+
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:8px 12px;text-align:left;white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;
+    border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}
+  td{border-bottom:1px solid var(--grid)}
+  tr:last-child td{border-bottom:0}
+  td.r,th.r{text-align:right}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;
+    background:var(--accent-weak);color:var(--accent)}
+  .empty{padding:26px;text-align:center;color:var(--muted)}
+
+  /* status badge */
+  .badge{display:inline-flex;align-items:center;gap:5px;font-weight:700;font-size:12px;
+    padding:2px 8px;border-radius:999px}
+  .badge.good{color:var(--good);background:color-mix(in srgb,var(--good) 14%,transparent)}
+  .badge.warning{color:#8a6100;background:color-mix(in srgb,var(--warning) 22%,transparent)}
+  .badge.critical{color:var(--critical);background:color-mix(in srgb,var(--critical) 14%,transparent)}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .badge.warning{color:var(--warning)}}
+  :root[data-theme="dark"] .badge.warning{color:var(--warning)}
+
+  /* gauge */
+  .gauge{margin:14px 0}
+  .gauge .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px}
+  .gauge .name{font-weight:600}
+  .gauge .track{position:relative;height:14px;border-radius:8px;background:var(--grid);overflow:visible}
+  .gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px}
+  .gauge .tick{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--axis)}
+  .gauge .tick span{position:absolute;top:-16px;left:50%;transform:translateX(-50%);
+    font-size:10px;color:var(--muted);white-space:nowrap}
+  .gauge .meta{color:var(--ink2);font-size:12px;margin-top:8px}
+  .gauge .meta b{color:var(--ink)}
+
+  /* chart */
+  .legend{display:flex;gap:16px;margin:2px 0 8px;font-size:12.5px;color:var(--ink2);flex-wrap:wrap}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .chart-wrap{overflow-x:auto}
+  svg .gl{stroke:var(--grid);stroke-width:1}
+  svg .axis{stroke:var(--axis);stroke-width:1}
+  svg text{fill:var(--muted);font-size:11px}
+  .note{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.55}
+  code{background:var(--accent-weak);color:var(--accent);padding:1px 5px;border-radius:5px;font-size:12px}
+
+  /* form nhập giao dịch */
+  .gd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:720px){.gd-grid{grid-template-columns:repeat(2,1fr)}}
+  .gd-form label,.b-edit label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink2)}
+  .gd-form label.wide{grid-column:1/-1}
+  .gd-form input,.gd-form select,.b-edit input{font:inherit;padding:6px 9px;border:1px solid var(--border);
+    border-radius:8px;background:var(--surface);color:var(--ink)}
+  .gd-form input[readonly]{background:color-mix(in srgb,var(--muted) 14%,transparent);opacity:.75}
+  .gd-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    margin-top:12px;flex-wrap:wrap}
+  .gd-tt{color:var(--ink2);font-size:13px}
+  .gd-tt b{color:var(--ink)}
+  .gd-form button{appearance:none;border:0;background:var(--accent);color:#fff;font:inherit;
+    font-weight:700;padding:9px 16px;border-radius:9px;cursor:pointer}
+  .gd-form button:hover{filter:brightness(1.06)}
+  .gd-msg{margin-top:10px;font-size:13px;font-weight:600}
+  .gd-msg.ok{color:var(--good)} .gd-msg.err{color:var(--critical)}
+
+  /* buttons + budget editor */
+  .row-between{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:22px 0 10px}
+  .btn{appearance:none;border:1px solid var(--border);background:var(--surface);color:var(--ink2);
+    font:inherit;font-weight:600;padding:7px 13px;border-radius:8px;cursor:pointer}
+  .btn:hover{background:var(--accent-weak);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+  .btn.primary:hover{filter:brightness(1.06)}
+
+  /* cây tổng hợp tồn */
+  .tree td.name.exp{cursor:pointer;user-select:none}
+  .tree td.name.exp:hover{color:var(--accent)}
+  .tree .chev{display:inline-block;width:14px;color:var(--muted);font-size:10px}
+  .tree tr.row0 td.name{font-weight:600}
+  .tree tr.sub td{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+  .tree .lvl-tag{color:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React + Babel qua CDN (không cần build; chạy trực tiếp / GitHub Pages) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const {useState, useMemo} = React;
+
+/* =====================================================================
+   DATA — hiện là MOCK theo đúng cột của từng view.
+   ĐỔI SANG SUPABASE: xem khối "supabase" ở cuối file.
+   ===================================================================== */
+
+// v_dm_ccdc  (danh mục = dm_vat_tu WHERE phan_loai IN ('CCDC','TB'))
+const V_DM_CCDC = [
+  {ma_bravo:"CC001", ten:"Máy khoan cầm tay",     phan_loai:"CCDC", nhom_sp:"Dụng cụ điện",       dvt:"Cái", gia_von:1800000},
+  {ma_bravo:"CC002", ten:"Bộ tua vít 32 chi tiết",phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",    dvt:"Bộ",  gia_von:450000},
+  {ma_bravo:"CC003", ten:"Thang nhôm 5 bậc",      phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",    dvt:"Cái", gia_von:1200000},
+  {ma_bravo:"TB001", ten:"Máy C-arm",             phan_loai:"TB",   nhom_sp:"Chẩn đoán hình ảnh", dvt:"Cái", gia_von:850000000},
+  {ma_bravo:"TB002", ten:"Máy bơm xi măng",       phan_loai:"TB",   nhom_sp:"Cột sống Ulrich",    dvt:"Cái", gia_von:120000000},
+  {ma_bravo:"TB003", ten:"Monitor theo dõi BN",   phan_loai:"TB",   nhom_sp:"Theo dõi bệnh nhân", dvt:"Cái", gia_von:45000000},
+];
+
+// v_ton_hien_tai
+const V_TON = [
+  {ma_bravo:"CC001", phan_loai:"CCDC", nhom_sp:"Dụng cụ điện",      mien:"Miền Bắc",  loai_vi_tri:"Kho",       vi_tri:"Kho HN",      pic:"Nguyễn Văn A", tinh_trang:"dang_dung", so_luong:4},
+  {ma_bravo:"CC001", phan_loai:"CCDC", nhom_sp:"Dụng cụ điện",      mien:"Miền Bắc",  loai_vi_tri:"Kho",       vi_tri:"Kho HN",      pic:"Trần Thị B",   tinh_trang:"dang_sua",  so_luong:1},
+  {ma_bravo:"CC001", phan_loai:"CCDC", nhom_sp:"Dụng cụ điện",      mien:"Miền Nam",  loai_vi_tri:"Kho",       vi_tri:"Kho HCM",     pic:"Lê Văn C",     tinh_trang:"dang_dung", so_luong:2},
+  {ma_bravo:"CC001", phan_loai:"CCDC", nhom_sp:"Dụng cụ điện",      mien:"Miền Nam",  loai_vi_tri:"Kho",       vi_tri:"Kho HCM",     pic:"Lê Văn C",     tinh_trang:"mat",       so_luong:1},
+  {ma_bravo:"CC002", phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",   mien:"Miền Bắc",  loai_vi_tri:"Kho",       vi_tri:"Kho HN",      pic:"Nguyễn Văn A", tinh_trang:"dang_dung", so_luong:10},
+  {ma_bravo:"CC002", phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",   mien:"Miền Bắc",  loai_vi_tri:"Sale/KTV",  vi_tri:"VP Sale HN",  pic:"Đỗ Văn E",     tinh_trang:"dang_dung", so_luong:3},
+  {ma_bravo:"CC002", phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",   mien:"Miền Trung",loai_vi_tri:"Kho",       vi_tri:"Kho ĐN",      pic:"Phạm D",       tinh_trang:"hong",      so_luong:2},
+  {ma_bravo:"CC003", phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",   mien:"Miền Trung",loai_vi_tri:"Kho",       vi_tri:"Kho ĐN",      pic:"Phạm D",       tinh_trang:"dang_sua",  so_luong:1},
+  {ma_bravo:"CC003", phan_loai:"CCDC", nhom_sp:"Dụng cụ cầm tay",   mien:"Miền Nam",  loai_vi_tri:"Kho",       vi_tri:"Kho HCM",     pic:"Lê Văn C",     tinh_trang:"dang_dung", so_luong:3},
+  {ma_bravo:"TB001", phan_loai:"TB",   nhom_sp:"Chẩn đoán hình ảnh",mien:"Miền Bắc",  loai_vi_tri:"Bệnh viện", vi_tri:"BV Bạch Mai", pic:"Phạm D",       tinh_trang:"dang_dung", so_luong:1},
+  {ma_bravo:"TB003", phan_loai:"TB",   nhom_sp:"Theo dõi bệnh nhân",mien:"Miền Nam",  loai_vi_tri:"Bệnh viện", vi_tri:"BV Chợ Rẫy",  pic:"Trần Thị B",   tinh_trang:"dang_dung", so_luong:2},
+];
+
+// v_gia_tri_con_lai  (chỉ TB có khấu hao; CCDC hiển thị nguyên giá, còn lại = nguyên giá)
+const V_CON_LAI = [
+  {id:3, ma_bravo:"TB001", phan_loai:"TB", mien:"Miền Bắc", serial:"CARM-2201",vi_tri:"BV Bạch Mai",pic:"Phạm D",     tinh_trang:"dang_dung", so_luong:1, nguyen_gia:850000000, gia_tri_con_lai:690000000},
+  {id:4, ma_bravo:"TB002", phan_loai:"TB", mien:"Miền Bắc", serial:"BXM-0087", vi_tri:"Kho HN",     pic:"Nguyễn Văn A",tinh_trang:"ton_kho",   so_luong:1, nguyen_gia:120000000, gia_tri_con_lai:105000000},
+  {id:5, ma_bravo:"TB003", phan_loai:"TB", mien:"Miền Nam", serial:"MON-1120", vi_tri:"BV Chợ Rẫy", pic:"Trần Thị B",  tinh_trang:"dang_dung", so_luong:2, nguyen_gia:45000000,  gia_tri_con_lai:70000000},
+];
+
+// v_gia_tri_theo_ky  (mua mới / hủy theo tháng)
+const V_KY = [
+  {ma_bravo:"CC001", ky:"2025-07", fy:2026, loai:"nhap_moi", sl:5, gia_tri:9000000,  mien:"Miền Bắc"},
+  {ma_bravo:"TB003", ky:"2025-07", fy:2026, loai:"nhap_moi", sl:1, gia_tri:45000000, mien:"Miền Nam"},
+  {ma_bravo:"CC002", ky:"2025-08", fy:2026, loai:"nhap_moi", sl:20,gia_tri:9000000,  mien:"Miền Bắc"},
+  {ma_bravo:"CC001", ky:"2025-08", fy:2026, loai:"huy",      sl:1, gia_tri:900000,   mien:"Miền Bắc"},
+  {ma_bravo:"TB002", ky:"2025-09", fy:2026, loai:"nhap_moi", sl:1, gia_tri:120000000,mien:"Miền Bắc"},
+  {ma_bravo:"CC003", ky:"2025-09", fy:2026, loai:"huy",      sl:1, gia_tri:600000,   mien:"Miền Trung"},
+  {ma_bravo:"CC001", ky:"2025-10", fy:2026, loai:"nhap_moi", sl:3, gia_tri:5400000,  mien:"Miền Nam"},
+  {ma_bravo:"CC003", ky:"2025-10", fy:2026, loai:"huy",      sl:2, gia_tri:1400000,  mien:"Miền Trung"},
+  {ma_bravo:"CC002", ky:"2025-11", fy:2026, loai:"nhap_moi", sl:15,gia_tri:6750000,  mien:"Miền Bắc"},
+  {ma_bravo:"TB001", ky:"2025-12", fy:2026, loai:"nhap_moi", sl:1, gia_tri:42000000, mien:"Miền Bắc"},
+  {ma_bravo:"TB003", ky:"2025-12", fy:2026, loai:"huy",      sl:1, gia_tri:22000000, mien:"Miền Nam"},
+];
+
+// v_budget_canh_bao (ngân sách theo nhóm sản phẩm)
+const V_BUDGET = [
+  {fy:2026, nhom_sp:"Khớp UOC",          gia_tri_budget:300000000, da_chi:355000000},
+  {fy:2026, nhom_sp:"Cột sống Ulrich",   gia_tri_budget:500000000, da_chi:420000000},
+  {fy:2026, nhom_sp:"Chẩn đoán hình ảnh",gia_tri_budget:250000000, da_chi:207000000},
+  {fy:2026, nhom_sp:"Dụng cụ cầm tay",   gia_tri_budget:40000000,  da_chi:22000000},
+];
+
+/* ---------------- helpers ---------------- */
+const vnd = n => (n==null?"—":Math.round(n).toLocaleString("vi-VN"));
+const TT_LABEL = {dang_dung:"Đang dùng",dang_sua:"Đang sửa",hong:"Hỏng",mat:"Mất",
+  ton_kho:"Tồn kho",cho_thanh_ly:"Chờ thanh lý",da_thanh_ly:"Đã thanh lý"};
+const LOAI_LABEL = {ton_dau:"Tồn đầu",nhap_moi:"Mua mới",huy:"Hủy",mat:"Mất",dieu_chuyen:"Điều chuyển"};
+const STATUS = {
+  OK:      {cls:"good",     icon:"✓", text:"OK"},
+  CANH_BAO:{cls:"warning",  icon:"⚠", text:"Cảnh báo"},
+  VUOT:    {cls:"critical", icon:"✕", text:"Vượt"},
+};
+const budgetStatus = r => r.da_chi > r.gia_tri_budget ? "VUOT"
+  : r.da_chi >= r.gia_tri_budget*0.8 ? "CANH_BAO" : "OK";
+const uniq = (arr,k) => [...new Set(arr.map(x=>x[k]).filter(v=>v!=null))];
+
+// gộp tình trạng: Đang dùng / Đang sửa / Hủy (Hỏng + Mất + thanh lý)
+const TT_BUCKET = t => t==="dang_dung" ? "dd" : t==="dang_sua" ? "ds" : "hy";
+function aggCounts(rows){
+  const c={dd:0,ds:0,hy:0};
+  rows.forEach(r=>{ c[TT_BUCKET(r.tinh_trang)] += (+r.so_luong||0); });
+  c.tong = c.dd + c.ds + c.hy;
+  return c;
+}
+function groupBy(rows,key){
+  const m=new Map();
+  rows.forEach(r=>{ const k=r[key]; if(!m.has(k)) m.set(k,[]); m.get(k).push(r); });
+  return [...m.entries()];
+}
+
+/* ---- bộ lọc DÙNG CHUNG cho mọi màn ---- */
+const MIEN_OPTS  = ["Miền Bắc","Miền Trung","Miền Nam"];
+const VITRI_OPTS = ["Kho","Sale/KTV","Bệnh viện"];
+const TT_OPTS    = [{v:"dd",t:"Đang dùng"},{v:"ds",t:"Đang sửa"},{v:"hy",t:"Hủy"}];
+const CAT = {};
+V_DM_CCDC.forEach(d=>{ CAT[d.ma_bravo]=d; });
+const infoOf = ma => CAT[ma] || {};
+
+// Một filter chỉ loại bỏ dòng CÓ trường tương ứng mà không khớp -> cùng 1 thanh lọc
+// dùng được cho mọi màn, mỗi màn tự áp phần liên quan tới dữ liệu của nó.
+function matchFlt(r, flt){
+  const info = infoOf(r.ma_bravo);
+  const nhom = r.nhom_sp || info.nhom_sp;
+  const pl   = r.phan_loai || info.phan_loai;
+  if(flt.nhom_sp   && nhom !== flt.nhom_sp) return false;
+  if(flt.phan_loai && pl   !== flt.phan_loai) return false;
+  if(flt.mien        && r.mien        && r.mien        !== flt.mien) return false;
+  if(flt.loai_vi_tri && r.loai_vi_tri && r.loai_vi_tri !== flt.loai_vi_tri) return false;
+  if(flt.tt          && r.tinh_trang  && TT_BUCKET(r.tinh_trang) !== flt.tt) return false;
+  if(flt.q){ const s=flt.q.toLowerCase(); const ten=(info.ten||"").toLowerCase();
+    if(!(String(r.ma_bravo).toLowerCase().includes(s) || ten.includes(s))) return false; }
+  return true;
+}
+
+function FilterBar({flt,setFlt}){
+  const set=(k,v)=>setFlt({...flt,[k]:v});
+  const nhomOpts=[...new Set([...V_DM_CCDC.map(d=>d.nhom_sp), ...V_BUDGET.map(b=>b.nhom_sp)])];
+  return <div className="filters">
+    <select value={flt.nhom_sp} onChange={e=>set("nhom_sp",e.target.value)}>
+      <option value="">Nhóm SP: Tất cả</option>
+      {nhomOpts.map(v=><option key={v} value={v}>{v}</option>)}
+    </select>
+    <select value={flt.mien} onChange={e=>set("mien",e.target.value)}>
+      <option value="">Miền: Tất cả</option>
+      {MIEN_OPTS.map(v=><option key={v} value={v}>{v}</option>)}
+    </select>
+    <select value={flt.phan_loai} onChange={e=>set("phan_loai",e.target.value)}>
+      <option value="">Phân loại: Tất cả</option>
+      <option value="CCDC">CCDC</option><option value="TB">TB</option>
+    </select>
+    <select value={flt.loai_vi_tri} onChange={e=>set("loai_vi_tri",e.target.value)}>
+      <option value="">Vị trí: Tất cả</option>
+      {VITRI_OPTS.map(v=><option key={v} value={v}>{v}</option>)}
+    </select>
+    <select value={flt.tt} onChange={e=>set("tt",e.target.value)}>
+      <option value="">Tình trạng: Tất cả</option>
+      {TT_OPTS.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+    </select>
+    <input placeholder="Tìm mã / tên…" value={flt.q} onChange={e=>set("q",e.target.value)}/>
+  </div>;
+}
+
+/* ==================== components ==================== */
+
+function Kpi({lbl,val,unit,cap,accent}){
+  return <div className="card kpi">
+    <div className="lbl">{lbl}</div>
+    <div className="val num" style={accent?{color:"var(--accent)"}:null}>{val}{unit&&<small>{unit}</small>}</div>
+    {cap && <div className="cap">{cap}</div>}
+  </div>;
+}
+
+function StatusBadge({s}){
+  const m = STATUS[s];
+  return <span className={"badge "+m.cls}>{m.icon} {m.text}</span>;
+}
+
+function Gauge({r}){
+  const pct = r.gia_tri_budget ? r.da_chi/r.gia_tri_budget*100 : 0;
+  const s = budgetStatus(r);
+  const color = {OK:"var(--good)",CANH_BAO:"var(--warning)",VUOT:"var(--critical)"}[s];
+  return <div className="gauge">
+    <div className="top">
+      <span className="name">{r.nhom_sp}</span>
+      <span><StatusBadge s={s}/> <b className="num" style={{marginLeft:6}}>{pct.toFixed(0)}%</b></span>
+    </div>
+    <div className="track">
+      <div className="fill" style={{width:Math.min(pct,100)+"%",background:color}}/>
+      <div className="tick" style={{left:"80%"}}><span>80%</span></div>
+      <div className="tick" style={{left:"100%"}}><span>100%</span></div>
+    </div>
+    <div className="meta">Đã chi <b className="num">{vnd(r.da_chi)}</b> / ngân sách <b className="num">{vnd(r.gia_tri_budget)}</b></div>
+  </div>;
+}
+
+/* Editor ngân sách theo nhóm SP (mở bằng nút "Cập nhật ngân sách") */
+function BudgetEditor({budget,setBudget,onClose}){
+  const [draft,setDraft]=useState(()=>budget.map(b=>({...b})));
+  const upd=(i,v)=>setDraft(d=>d.map((r,j)=>j===i?{...r,gia_tri_budget:+v||0}:r));
+  const total=draft.reduce((a,r)=>a+r.gia_tri_budget,0);
+  return <div className="card b-edit">
+    <div className="gd-grid">
+      {draft.map((r,i)=><label key={r.nhom_sp}>{r.nhom_sp}
+        <input type="number" min="0" step="any" value={r.gia_tri_budget}
+          onChange={e=>upd(i,e.target.value)}/></label>)}
+    </div>
+    <div className="gd-foot">
+      <span className="gd-tt">Tổng ngân sách: <b className="num">{vnd(total)}</b></span>
+      <span style={{display:"flex",gap:8}}>
+        <button type="button" className="btn" onClick={onClose}>Huỷ</button>
+        <button type="button" className="btn primary" onClick={()=>{setBudget(draft);onClose();}}>Lưu ngân sách</button>
+      </span>
+    </div>
+  </div>;
+}
+
+function niceMax(v){
+  const p=Math.pow(10,Math.floor(Math.log10(v)));
+  const n=v/p;
+  const step = n<=1?1:n<=2?2:n<=5?5:10;
+  return step*p;
+}
+
+/* Grouped bar chart: mua mới / hủy theo tháng (chỉ dùng ở Tổng quan) */
+function ChartTheoKy({rows}){
+  const [hover,setHover] = useState(null);
+  const series = [
+    {loai:"nhap_moi", label:"Mua mới", color:"var(--s1)"},
+    {loai:"huy",      label:"Hủy",     color:"var(--s2)"},
+  ];
+  const months = useMemo(()=>uniq(rows,"ky").sort(),[rows]);
+  const data = useMemo(()=>months.map(ky=>{
+    const o={ky};
+    series.forEach(s=>{o[s.loai]=rows.filter(r=>r.ky===ky&&r.loai===s.loai)
+      .reduce((a,r)=>a+r.gia_tri,0);});
+    return o;
+  }),[months,rows]);
+  if(months.length===0) return <div className="empty">Không có giao dịch khớp bộ lọc</div>;
+
+  const W=720,H=320,padL=52,padR=14,padT=16,padB=34;
+  const pw=W-padL-padR, ph=H-padT-padB;
+  const rawMax = Math.max(1,...data.flatMap(d=>series.map(s=>d[s.loai])));
+  const yMax = niceMax(rawMax);
+  const gw = pw/months.length;
+  const barW=22, gap=6, inner=series.length*barW+(series.length-1)*gap, off=(gw-inner)/2;
+  const y = v => padT+ph-(v/yMax)*ph;
+  const ticks=[0,.25,.5,.75,1].map(t=>t*yMax);
+  const barPath=(x,yy,w,h,r)=>{ r=Math.min(r,h);
+    return `M${x},${yy+h} L${x},${yy+r} Q${x},${yy} ${x+r},${yy} L${x+w-r},${yy} Q${x+w},${yy} ${x+w},${yy+r} L${x+w},${yy+h} Z`; };
+  const fmtM = v => v>=1e6? (v/1e6).toFixed(v>=1e7?0:1)+"tr" : Math.round(v/1e3)+"k";
+
+  return <div>
+    <div className="legend">
+      {series.map(s=><span key={s.loai}><i style={{background:s.color}}/>{s.label}</span>)}
+    </div>
+    <div className="chart-wrap">
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{maxWidth:W,height:"auto",display:"block"}}
+         role="img" aria-label="Giá trị mua mới, hủy theo tháng">
+      {ticks.map((t,i)=><g key={i}>
+        <line className="gl" x1={padL} x2={W-padR} y1={y(t)} y2={y(t)}/>
+        <text x={padL-8} y={y(t)+3} textAnchor="end">{fmtM(t)}</text>
+      </g>)}
+      <line className="axis" x1={padL} x2={W-padR} y1={padT+ph} y2={padT+ph}/>
+      {data.map((d,gi)=>{
+        const gx=padL+gi*gw;
+        return <g key={d.ky}>
+          <text x={gx+gw/2} y={padT+ph+18} textAnchor="middle">{"T"+parseInt(d.ky.slice(5),10)}</text>
+          {series.map((s,si)=>{
+            const v=d[s.loai]; if(!v) return null;
+            const x=gx+off+si*(barW+gap), h=(v/yMax)*ph, yy=y(v);
+            const on = hover&&hover.gi===gi&&hover.si===si;
+            return <path key={s.loai} d={barPath(x,yy,barW,h,4)} fill={s.color}
+              opacity={hover&&!on?0.55:1}
+              onMouseEnter={()=>setHover({gi,si,x:x+barW/2,yy,v,label:s.label,ky:d.ky})}
+              onMouseLeave={()=>setHover(null)}/>;
+          })}
+        </g>;
+      })}
+      {hover && <g pointerEvents="none">
+        <line x1={hover.x} x2={hover.x} y1={padT} y2={padT+ph} stroke="var(--axis)" strokeDasharray="3 3"/>
+        <rect x={Math.min(hover.x-58,W-120)} y={Math.max(hover.yy-42,padT)} width="116" height="34" rx="7"
+          fill="var(--surface)" stroke="var(--border)"/>
+        <text x={Math.min(hover.x-50,W-112)} y={Math.max(hover.yy-27,padT+15)} style={{fill:"var(--ink2)"}}>
+          {hover.label} · T{parseInt(hover.ky.slice(5),10)}</text>
+        <text x={Math.min(hover.x-50,W-112)} y={Math.max(hover.yy-13,padT+29)}
+          style={{fill:"var(--ink)",fontWeight:700}} className="num">{vnd(hover.v)}</text>
+      </g>}
+    </svg>
+    </div>
+  </div>;
+}
+
+/* Bảng đơn giản (rows đã lọc sẵn từ bộ lọc dùng chung) */
+function DataTable({rows,cols}){
+  return <div>
+    <div className="tbl-wrap">
+      <table>
+        <thead><tr>{cols.map(c=><th key={c.key} className={c.num?"r":""}>{c.head}</th>)}</tr></thead>
+        <tbody>
+          {rows.length===0
+            ? <tr><td className="empty" colSpan={cols.length}>Không có dữ liệu khớp bộ lọc</td></tr>
+            : rows.map((r,i)=><tr key={i}>
+                {cols.map(c=><td key={c.key} className={c.num?"r num":""}>
+                  {c.render?c.render(r[c.key],r):r[c.key]}</td>)}
+              </tr>)}
+        </tbody>
+      </table>
+    </div>
+    <div className="note">{rows.length} dòng</div>
+  </div>;
+}
+
+/* ---- form nhập giao dịch ---- */
+const LOAI_OPTS = [
+  {v:"nhap_moi",t:"Mua mới"},{v:"huy",t:"Hủy"},{v:"dieu_chuyen",t:"Điều chuyển"},
+];
+const todayStr = () => new Date().toISOString().slice(0,10);
+const fyOf = d => { const m=+d.slice(5,7), y=+d.slice(0,4); return m>=7?y+1:y; };
+const residualPerUnit = ma => {
+  const r = V_CON_LAI.find(x=>x.ma_bravo===ma);
+  return r && r.so_luong ? r.gia_tri_con_lai/r.so_luong : 0;
+};
+
+function FormGiaoDich({onAdd}){
+  const [ngay,setNgay]=useState(todayStr());
+  const [loai,setLoai]=useState("nhap_moi");
+  const [ma,setMa]=useState(V_DM_CCDC[0].ma_bravo);
+  const [sl,setSl]=useState(1);
+  const [dg,setDg]=useState("");
+  const [viTri,setViTri]=useState("");
+  const [pic,setPic]=useState("");
+  const [viTriTu,setViTriTu]=useState("");
+  const [picTu,setPicTu]=useState("");
+  const [selSerial,setSelSerial]=useState("");
+  const [ghiChu,setGhiChu]=useState("");
+  const [msg,setMsg]=useState(null);
+
+  const maRow = infoOf(ma);
+  const isTB  = maRow.phan_loai === "TB";                       // chỉ TB quản theo serial
+  const needGia    = loai==="nhap_moi";
+  const needSource = loai==="huy" || loai==="dieu_chuyen";
+  const needDest   = loai==="nhap_moi" || loai==="dieu_chuyen";
+  const slEff = isTB ? 1 : (+sl||0);
+  const tbList = V_CON_LAI.filter(x=>x.ma_bravo===ma && x.serial);
+
+  const pickMa = v => { setMa(v); setSelSerial(""); setViTriTu(""); setPicTu(""); setSl(1); };
+  const pickSerial = v => {
+    setSelSerial(v);
+    const a = tbList.find(x=>x.serial===v);
+    setViTriTu(a?a.vi_tri:""); setPicTu(a?a.pic:"");
+  };
+  const thanhTien = () =>
+    loai==="nhap_moi"    ? slEff*(+dg||0) :
+    loai==="dieu_chuyen" ? 0 :
+                           residualPerUnit(ma)*slEff;
+
+  const submit = e => {
+    e.preventDefault();
+    if(isTB && needSource && !selSerial) return setMsg({err:true,text:"Chọn thiết bị (serial) cần thao tác."});
+    if(!ma || !(slEff>0))   return setMsg({err:true,text:"Thiếu mã hoặc số lượng > 0."});
+    if(needGia && !(+dg>0)) return setMsg({err:true,text:"Mua mới cần đơn giá > 0."});
+    const tt = Math.round(thanhTien());
+    // Supabase thật: sb.from("giao_dich").insert({ngay,loai,ma_bravo:ma,
+    //   tai_san_id: <chỉ TB: id của serial đang chọn>, so_luong:slEff, don_gia:+dg||0,
+    //   vi_tri_tu:viTriTu, pic_tu:picTu, vi_tri_den:viTri, pic_den:pic, ghi_chu:ghiChu})
+    onAdd({ma_bravo:ma, ky:ngay.slice(0,7), fy:fyOf(ngay), loai, sl:slEff, gia_tri:tt});
+    setMsg({err:false,text:`✓ Đã thêm ${LOAI_LABEL[loai]} · ${ma} · ${vnd(tt)}`});
+    setSl(1); setDg(""); setViTri(""); setPic(""); setViTriTu(""); setPicTu(""); setSelSerial(""); setGhiChu("");
+  };
+
+  return <form className="card gd-form" onSubmit={submit}>
+    <h2 className="sec" style={{marginTop:0}}>Thêm giao dịch</h2>
+    <div className="gd-grid">
+      <label>Ngày<input type="date" value={ngay} onChange={e=>setNgay(e.target.value)}/></label>
+      <label>Loại
+        <select value={loai} onChange={e=>setLoai(e.target.value)}>
+          {LOAI_OPTS.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+        </select></label>
+      <label>Mã Bravo
+        <select value={ma} onChange={e=>pickMa(e.target.value)}>
+          {V_DM_CCDC.map(d=><option key={d.ma_bravo} value={d.ma_bravo}>{d.ma_bravo} — {d.ten} [{d.phan_loai}]</option>)}
+        </select></label>
+      {isTB && needSource
+        ? <label>Thiết bị (serial)
+            <select value={selSerial} onChange={e=>pickSerial(e.target.value)}>
+              <option value="">— chọn máy —</option>
+              {tbList.map(a=><option key={a.serial} value={a.serial}>{a.serial} · {a.vi_tri}</option>)}
+            </select></label>
+        : <label>Số lượng
+            <input type="number" min="0" step="any" value={isTB?1:sl}
+              readOnly={isTB} onChange={e=>setSl(e.target.value)}/></label>}
+      {needGia && <label>Đơn giá<input type="number" min="0" step="any" value={dg} onChange={e=>setDg(e.target.value)}/></label>}
+      {needSource && <label>Vị trí đi
+        <input value={viTriTu} readOnly={isTB} placeholder={isTB?"(từ serial)":""}
+          onChange={e=>setViTriTu(e.target.value)}/></label>}
+      {needSource && <label>PIC đi
+        <input value={picTu} readOnly={isTB} placeholder={isTB?"(từ serial)":""}
+          onChange={e=>setPicTu(e.target.value)}/></label>}
+      {needDest && <label>{loai==="dieu_chuyen"?"Vị trí đến":"Vị trí"}
+        <input value={viTri} onChange={e=>setViTri(e.target.value)}/></label>}
+      {needDest && <label>{loai==="dieu_chuyen"?"PIC đến":"PIC"}
+        <input value={pic} onChange={e=>setPic(e.target.value)}/></label>}
+      <label className="wide">Ghi chú<input value={ghiChu} onChange={e=>setGhiChu(e.target.value)}/></label>
+    </div>
+    <div className="gd-foot">
+      <span className="gd-tt">
+        {isTB && <span style={{color:"var(--muted)"}}>TB theo serial — mỗi máy 1 dòng. </span>}
+        {loai==="dieu_chuyen" ? "Giá trị ghi nhận: 0 (không đổi tổng)"
+          : loai==="huy" ? <>Giá trị còn lại ước tính: <b className="num">{vnd(residualPerUnit(ma)*slEff)}</b></>
+          : <>Thành tiền: <b className="num">{vnd(slEff*(+dg||0))}</b></>}
+      </span>
+      <button type="submit">+ Thêm giao dịch</button>
+    </div>
+    {msg && <div className={"gd-msg "+(msg.err?"err":"ok")}>{msg.text}</div>}
+  </form>;
+}
+
+/* ==================== tabs ==================== */
+
+function TabTongQuan({gd, flt, budget, setBudget}){
+  const [editBudget,setEditBudget]=useState(false);
+  const gdF = gd.filter(r=>matchFlt(r,flt));
+  const conLaiF = V_CON_LAI.filter(r=>matchFlt(r,flt));
+  const ytd = l => gdF.filter(r=>r.loai===l).reduce((a,r)=>a+r.gia_tri,0);
+  const tongConLai = conLaiF.reduce((a,r)=>a+r.gia_tri_con_lai,0);
+  const budgetF = budget.filter(b=>!flt.nhom_sp || b.nhom_sp===flt.nhom_sp);
+  const nganSachCaNam = budgetF.reduce((a,r)=>a+r.gia_tri_budget,0);
+  return <div>
+    <div className="grid-kpi">
+      <Kpi lbl="Ngân sách cả năm"   val={vnd(nganSachCaNam)} accent cap="FY26 · nhóm sản phẩm"/>
+      <Kpi lbl="Mua mới (YTD)"      val={vnd(ytd("nhap_moi"))} cap="Trừ vào ngân sách"/>
+      <Kpi lbl="Tổng giá trị còn lại" val={vnd(tongConLai)} cap="Thiết bị (sau khấu hao)"/>
+      <Kpi lbl="Hủy (YTD)"          val={vnd(ytd("huy"))} cap="Gồm cả mất — giá trị còn lại"/>
+      <Kpi lbl="Số tài sản theo dõi" val={conLaiF.length} unit="dòng" cap="Thiết bị theo serial"/>
+    </div>
+    <div className="row-between">
+      <h2 className="sec" style={{margin:0}}>Ngân sách mua mới theo nhóm sản phẩm — FY26</h2>
+      {!editBudget && <button className="btn primary" onClick={()=>setEditBudget(true)}>✎ Cập nhật ngân sách</button>}
+    </div>
+    {editBudget
+      ? <BudgetEditor budget={budget} setBudget={setBudget} onClose={()=>setEditBudget(false)}/>
+      : <div className="card">
+          {budgetF.length===0 ? <div className="empty">Không có nhóm khớp bộ lọc</div>
+            : budgetF.map((r,i)=><Gauge key={i} r={r}/>)}
+        </div>}
+    <h2 className="sec">Giá trị mua mới / hủy theo tháng</h2>
+    <div className="card"><ChartTheoKy rows={gdF}/></div>
+  </div>;
+}
+
+function TabDanhMuc({flt}){
+  const rows = V_DM_CCDC.filter(r=>matchFlt(r,flt));
+  return <DataTable rows={rows} cols={[
+    {key:"ma_bravo",head:"Mã Bravo"},
+    {key:"ten",head:"Tên"},
+    {key:"nhom_sp",head:"Nhóm SP"},
+    {key:"phan_loai",head:"Phân loại",render:v=><span className="pill">{v}</span>},
+    {key:"dvt",head:"ĐVT"},
+    {key:"gia_von",head:"Giá vốn",num:true,render:v=>vnd(v)},
+  ]}/>;
+}
+
+/* Tồn hiện tại: cây tổng hợp + bảng Giá trị còn lại (chỉ Thiết bị) */
+function TabTon({flt}){
+  const [open,setOpen]=useState(()=>new Set());
+  const toggle = k => setOpen(s=>{ const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n; });
+  const tenOf = ma => infoOf(ma).ten || "—";
+  const LEVELS = [["ma_bravo","Mã"],["mien","Miền"],["vi_tri","Vị trí"],["pic","PIC"]];
+
+  const rows = V_TON.filter(r=>matchFlt(r,flt));
+  const out=[];
+  const walk=(data,lvl,prefix)=>{
+    for(const [val,rs] of groupBy(data,LEVELS[lvl][0])){
+      const key=prefix+"/"+val;
+      out.push({key,lvl,val,rs,isOpen:open.has(key),leaf:lvl===LEVELS.length-1});
+      if(open.has(key) && lvl<LEVELS.length-1) walk(rs,lvl+1,key);
+    }
+  };
+  walk(rows,0,"");
+
+  const conLaiTB = V_CON_LAI.filter(r=>r.phan_loai==="TB" && matchFlt(r,flt));
+
+  return <div>
+    <div className="note" style={{marginTop:0,marginBottom:10}}>
+      Bấm vào mã để mở lớp <b>Miền → Vị trí → PIC</b>. {out.filter(r=>r.lvl===0).length} mã.
+    </div>
+    <div className="tbl-wrap">
+      <table className="tree">
+        <thead><tr>
+          <th>Mã CCDC</th><th>Tên CCDC</th>
+          <th className="r">Đang dùng</th><th className="r">Đang sửa</th>
+          <th className="r">Hủy</th><th className="r">Tổng</th>
+        </tr></thead>
+        <tbody>
+          {out.length===0 && <tr><td className="empty" colSpan={6}>Không có dữ liệu khớp bộ lọc</td></tr>}
+          {out.map(r=>{
+            const c=aggCounts(r.rs), canExp=!r.leaf;
+            return <tr key={r.key} className={r.lvl===0?"row0":"sub"}>
+              <td className={"name"+(canExp?" exp":"")} style={{paddingLeft:12+r.lvl*18}}
+                  onClick={canExp?()=>toggle(r.key):undefined}>
+                <span className="chev">{canExp?(r.isOpen?"▾":"▸"):""}</span>{r.val}
+              </td>
+              <td>{r.lvl===0 ? tenOf(r.val) : <span className="lvl-tag">{LEVELS[r.lvl][1]}</span>}</td>
+              <td className="r num">{c.dd||""}</td>
+              <td className="r num">{c.ds||""}</td>
+              <td className="r num">{c.hy||""}</td>
+              <td className="r num" style={{fontWeight:600}}>{c.tong}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <h2 className="sec">Giá trị còn lại — Thiết bị</h2>
+    <DataTable rows={conLaiTB} cols={[
+      {key:"ma_bravo",head:"Mã Bravo"},
+      {key:"serial",head:"Serial",render:v=>v||"—"},
+      {key:"vi_tri",head:"Vị trí"},
+      {key:"pic",head:"PIC"},
+      {key:"tinh_trang",head:"Tình trạng",render:v=>TT_LABEL[v]||v},
+      {key:"nguyen_gia",head:"Nguyên giá",num:true,render:v=>vnd(v)},
+      {key:"gia_tri_con_lai",head:"Còn lại",num:true,render:v=>vnd(v)},
+    ]}/>
+  </div>;
+}
+
+/* Giao dịch: mặc định là form Thêm giao dịch + bảng chi tiết các thay đổi (không chart) */
+function TabTheoKy({gd,onAdd,flt}){
+  const rows = [...gd.filter(r=>matchFlt(r,flt))].reverse();  // mới nhất lên đầu
+  return <div>
+    <FormGiaoDich onAdd={onAdd}/>
+    <h2 className="sec">Chi tiết các thay đổi</h2>
+    <DataTable rows={rows} cols={[
+      {key:"ky",head:"Kỳ"},
+      {key:"ma_bravo",head:"Mã Bravo"},
+      {key:"loai",head:"Loại",render:v=>LOAI_LABEL[v]||v},
+      {key:"sl",head:"SL",num:true},
+      {key:"gia_tri",head:"Giá trị",num:true,render:v=>vnd(v)},
+    ]}/>
+  </div>;
+}
+
+/* ==================== app shell ==================== */
+const TABS = [
+  {id:"tq",  label:"Tổng quan"},
+  {id:"dm",  label:"Danh mục",     view:"v_dm_ccdc"},
+  {id:"ton", label:"Tồn hiện tại", view:"v_ton_hien_tai + v_gia_tri_con_lai"},
+  {id:"ky",  label:"Giao dịch",    view:"v_gia_tri_theo_ky"},
+];
+
+function App(){
+  const [tab,setTab]=useState("tq");
+  const [gd,setGd]=useState(V_KY);
+  const [budget,setBudget]=useState(V_BUDGET);
+  const [flt,setFlt]=useState({nhom_sp:"",mien:"",phan_loai:"",loai_vi_tri:"",tt:"",q:""});
+  const panel = {
+    tq:  <TabTongQuan gd={gd} flt={flt} budget={budget} setBudget={setBudget}/>,
+    dm:  <TabDanhMuc flt={flt}/>,
+    ton: <TabTon flt={flt}/>,
+    ky:  <TabTheoKy gd={gd} flt={flt} onAdd={row=>setGd(g=>[...g,row])}/>,
+  }[tab];
+  return <div>
+    <header className="hd">
+      <div className="logo">CT</div>
+      <div>
+        <h1>Quản lý Công cụ dụng cụ &amp; Thiết bị</h1>
+        <div className="sub">FY26 · dữ liệu MOCK — cắm Supabase để chạy thật</div>
+      </div>
+    </header>
+    <nav className="tabs" role="tablist">
+      {TABS.map(t=>
+        <button key={t.id} role="tab" aria-selected={t.id===tab} onClick={()=>setTab(t.id)}>
+          {t.label}{t.view && <span style={{color:"var(--muted)",fontWeight:400,fontSize:11}}> · {t.view}</span>}
+        </button>)}
+    </nav>
+    <FilterBar flt={flt} setFlt={setFlt}/>
+    <div role="tabpanel">{panel}</div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+
+/* =====================================================================
+   ĐỔI SANG DỮ LIỆU THẬT (Supabase)
+   ---------------------------------------------------------------------
+   1) Thêm CDN vào <head>:
+        <script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>
+   2) const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+   3) Nạp từng view bằng useEffect (đều ở schema public, select *):
+        v_dm_ccdc · v_ton_hien_tai · v_gia_tri_con_lai · v_gia_tri_theo_ky · v_budget_canh_bao
+      rồi thay các hằng V_* bằng state; giữ nguyên bộ lọc dùng chung (matchFlt).
+   4) Nút "Cập nhật ngân sách" -> upsert public.ngan_sach theo (nam_tai_chinh, nhom_san_pham).
+   5) Bộ lọc dùng chung cần các cột: nhom_san_pham, mien, phan_loai, loai_vi_tri,
+      tinh_trang trên view (đã có trong v_ton_hien_tai; các view khác join dm_vat_tu).
+   Lưu ý: RLS đọc cho role; view join shared.dm_vat_tu nên role cần đọc schema shared.
+   ===================================================================== */
+</script>
+</body>
+</html>
