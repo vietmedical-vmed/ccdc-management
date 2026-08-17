@@ -364,7 +364,7 @@ async function handleAction(
           .select("phan_loai", { count: "exact", head: false })
           .in("phan_loai", ["CCDC", "THIẾT BỊ"]),
         admin.schema("app_ccdc").from("tai_san")
-          .select("id, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
+          .select("id, ma_bravo, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
           .eq("trang_thai_hd", "Active"),
         admin.schema("app_ccdc").from("giao_dich")
           .select("ngay, loai, thanh_tien, so_luong")
@@ -420,23 +420,41 @@ async function handleAction(
         chart_theo_ky.push({ ky: k, ...(chartMap[k] ?? { nhap_moi: 0, huy: 0 }) });
       }
 
+      // phan_loai (CCDC / THIẾT BỊ) theo ma_bravo để tách SL CCDC vs SL TB
+      const tsMaList = [...new Set(ts.map((r: any) => r.ma_bravo).filter(Boolean))];
+      const plMap = new Map<string, string>();
+      if (tsMaList.length) {
+        const plRes = await admin.schema("shared").from("dm_vat_tu")
+          .select("ma_bravo, phan_loai").in("ma_bravo", tsMaList);
+        for (const d of (plRes.data ?? [])) plMap.set(d.ma_bravo, d.phan_loai);
+      }
+
       // Tồn theo miền → loại vị trí → PIC (cây 3 cấp)
-      type TonPic  = { sl: number; nguyen_gia: number };
-      type TonViTri = { sl: number; nguyen_gia: number; pics: Record<string, TonPic> };
-      type TonMien = { sl: number; nguyen_gia: number; vitris: Record<string, TonViTri> };
+      type TonAgg  = { sl: number; sl_ccdc: number; sl_tb: number; nguyen_gia: number };
+      type TonPic  = TonAgg;
+      type TonViTri = TonAgg & { pics: Record<string, TonPic> };
+      type TonMien = TonAgg & { vitris: Record<string, TonViTri> };
+      const newAgg = () => ({ sl: 0, sl_ccdc: 0, sl_tb: 0, nguyen_gia: 0 });
+      const addAgg = (a: TonAgg, sl: number, val: number, pl: string) => {
+        a.sl += sl; a.nguyen_gia += val;
+        if (pl === "CCDC") a.sl_ccdc += sl;
+        else if (pl === "THIẾT BỊ") a.sl_tb += sl;
+      };
       const tonByMien: Record<string, TonMien> = {};
       for (const r of ts) {
         const sl  = Number(r.so_luong ?? 0);
         const val = sl * Number(r.nguyen_gia ?? 0);
+        const pl  = plMap.get(r.ma_bravo) ?? "";
         const mk = r.mien || "—", vt = r.loai_vi_tri || "—", pic = r.pic || "—";
-        const M = (tonByMien[mk] ??= { sl: 0, nguyen_gia: 0, vitris: {} });
-        M.sl += sl; M.nguyen_gia += val;
-        const V = (M.vitris[vt] ??= { sl: 0, nguyen_gia: 0, pics: {} });
-        V.sl += sl; V.nguyen_gia += val;
-        const P = (V.pics[pic] ??= { sl: 0, nguyen_gia: 0 });
-        P.sl += sl; P.nguyen_gia += val;
+        const M = (tonByMien[mk] ??= { ...newAgg(), vitris: {} });
+        addAgg(M, sl, val, pl);
+        const V = (M.vitris[vt] ??= { ...newAgg(), pics: {} });
+        addAgg(V, sl, val, pl);
+        const P = (V.pics[pic] ??= newAgg());
+        addAgg(P, sl, val, pl);
       }
-      const byNguyenGia = (a: any, b: any) => b.nguyen_gia - a.nguyen_gia;
+      const bySl = (a: any, b: any) => b.sl - a.sl;
+      const pickAgg = (x: TonAgg) => ({ sl: x.sl, sl_ccdc: x.sl_ccdc, sl_tb: x.sl_tb, nguyen_gia: x.nguyen_gia });
 
       // 10 GD gần nhất + enrich tên
       const recent = recentRes.data ?? [];
@@ -459,14 +477,14 @@ async function handleAction(
           mua_moi_ytd, huy_ytd, ngan_sach_ca_nam,
         },
         ton_by_mien: Object.entries(tonByMien).map(([mien, M]) => ({
-          mien, sl: M.sl, nguyen_gia: M.nguyen_gia,
+          mien, ...pickAgg(M),
           children: Object.entries(M.vitris).map(([vi_tri, V]) => ({
-            vi_tri, sl: V.sl, nguyen_gia: V.nguyen_gia,
+            vi_tri, ...pickAgg(V),
             children: Object.entries(V.pics).map(([pic, P]) => ({
-              pic, sl: P.sl, nguyen_gia: P.nguyen_gia,
-            })).sort(byNguyenGia),
-          })).sort(byNguyenGia),
-        })).sort(byNguyenGia),
+              pic, ...pickAgg(P),
+            })).sort(bySl),
+          })).sort(bySl),
+        })).sort(bySl),
         budget,
         chart_theo_ky,
         recent_giao_dich: recent_enriched,

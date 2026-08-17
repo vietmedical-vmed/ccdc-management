@@ -191,15 +191,30 @@
 
   // ─── Tồn theo miền → vị trí → PIC (cây 3 cấp expand) ──────
   function TonTheoMien({ rows }) {
-    const [open, setOpen] = useState(() => new Set());
+    // Mặc định mở cấp miền + vị trí (không mở PIC)
+    const [open, setOpen] = useState(() => {
+      const s = new Set();
+      for (const m of rows) {
+        s.add("m:" + m.mien);
+        for (const v of (m.children || [])) s.add("m:" + m.mien + "|v:" + v.vi_tri);
+      }
+      return s;
+    });
     const toggle = (key) => setOpen((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
 
+    const numCells = (r, py, bold) => [
+      h("td", { key: "c", className: "px-3 " + py + " text-right tabular-nums text-slate-500" }, r.sl_ccdc ? fmtInt(r.sl_ccdc) : "—"),
+      h("td", { key: "t", className: "px-3 " + py + " text-right tabular-nums text-slate-500" }, r.sl_tb ? fmtInt(r.sl_tb) : "—"),
+      h("td", { key: "s", className: "px-3 " + py + " text-right tabular-nums" + (bold ? " font-semibold" : "") }, fmtInt(r.sl)),
+      h("td", { key: "g", className: "px-3 " + py + " text-right tabular-nums" }, fmtShort(r.nguyen_gia)),
+    ];
+
     // level: 0=miền, 1=vị trí, 2=PIC. Cột 1 thụt lề & style theo cấp.
-    const branchRow = (key, label, sub, kids, level, r) => {
+    const branchRow = (key, label, kids, level, r) => {
       const isOpen = open.has(key);
       const hasKids = kids && kids.length;
       const pad = { 0: "px-3", 1: "pl-8 pr-3", 2: "pl-14 pr-3" }[level];
@@ -223,42 +238,39 @@
             : h("span", { className: "inline-block w-4" }),
           label,
           hasKids ? h("span", { className: "ml-1.5 text-xs font-normal text-slate-400" }, "(" + kids.length + ")") : null,
-          sub ? h("span", { className: "ml-1.5 text-xs font-normal text-slate-400" }, sub) : null,
         ),
-        h("td", { className: "px-3 " + py + " text-right tabular-nums" + (level === 0 ? " font-semibold" : "") }, fmtInt(r.sl)),
-        h("td", { className: "px-3 " + py + " text-right tabular-nums" }, fmtShort(r.nguyen_gia)),
+        ...numCells(r, py, level === 0),
       );
     };
 
     const render = (rowsArr) => rowsArr.flatMap((m) => {
-      const out = [branchRow("m:" + m.mien, m.mien, null, m.children, 0, m)];
+      const out = [branchRow("m:" + m.mien, m.mien, m.children, 0, m)];
       if (!open.has("m:" + m.mien)) return out;
       for (const v of (m.children || [])) {
         const vk = "m:" + m.mien + "|v:" + v.vi_tri;
-        out.push(branchRow(vk, v.vi_tri, null, v.children, 1, v));
+        out.push(branchRow(vk, v.vi_tri, v.children, 1, v));
         if (!open.has(vk)) continue;
         for (const p of (v.children || [])) {
           out.push(h("tr", { key: vk + "|p:" + p.pic, className: "border-t border-slate-50 bg-slate-50/50 text-slate-600" },
             h("td", { className: "pl-14 pr-3 py-1.5" },
               h("span", { className: "inline-block w-4" }), p.pic),
-            h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtInt(p.sl)),
-            h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtShort(p.nguyen_gia)),
+            ...numCells(p, "py-1.5", false),
           ));
         }
       }
       return out;
     });
 
+    const th = (label, extra) => h("th", { className: "px-3 py-2 text-xs font-semibold text-slate-600 uppercase " + (extra || "text-right") }, label);
     return h("table", { className: "w-full text-sm" },
       h("thead", { className: "bg-slate-50" },
         h("tr", null,
-          h("th", { className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase" }, "Miền → Vị trí → PIC"),
-          h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "SL"),
-          h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "Nguyên giá"),
+          th("Miền → Vị trí → PIC", "text-left"),
+          th("SL CCDC"), th("SL TB"), th("Tổng SL"), th("Nguyên giá"),
         )),
       h("tbody", null,
         rows.length === 0
-          ? h("tr", null, h("td", { colSpan: 3, className: "px-3 py-6 text-center text-sm text-slate-400" }, "Chưa có tài sản"))
+          ? h("tr", null, h("td", { colSpan: 5, className: "px-3 py-6 text-center text-sm text-slate-400" }, "Chưa có tài sản"))
           : render(rows)),
     );
   }
