@@ -144,7 +144,7 @@ async function handleAction(
     }
 
     // ── Tài sản ─────────────────────────────────────────────────────────
-    // params: { search?, phan_loai?, mien?, loai_vi_tri?, page?, pageSize? }
+    // params: { search?, phan_loai?, nhom_san_pham?, mien?, loai_vi_tri?, page?, pageSize? }
     case "list_tai_san": {
       const page = Math.max(1, Number(payload.page ?? 1));
       const pageSize = Math.min(200, Math.max(10, Number(payload.pageSize ?? 50)));
@@ -170,27 +170,91 @@ async function handleAction(
       if (error) throw new Error(error.message);
       const rows = data ?? [];
 
-      // Enrich với tên + phan_loai từ dm_vat_tu
       const maList = [...new Set(rows.map((r: any) => r.ma_bravo).filter(Boolean))];
-      let nameMap = new Map<string, { ten: string; phan_loai: string }>();
+      let nameMap = new Map<string, { ten: string; phan_loai: string; san_pham: string; nhom_san_pham: string }>();
       if (maList.length) {
         const dmRes = await admin.schema("shared").from("dm_vat_tu")
-          .select("ma_bravo, ten_vat_tu, phan_loai").in("ma_bravo", maList);
+          .select("ma_bravo, ten_vat_tu, phan_loai, san_pham, nhom_san_pham").in("ma_bravo", maList);
         for (const d of (dmRes.data ?? [])) {
-          nameMap.set(d.ma_bravo, { ten: d.ten_vat_tu, phan_loai: d.phan_loai });
+          nameMap.set(d.ma_bravo, { ten: d.ten_vat_tu, phan_loai: d.phan_loai, san_pham: d.san_pham, nhom_san_pham: d.nhom_san_pham });
         }
       }
       const enriched = rows.map((r: any) => ({
         ...r,
-        ten_vat_tu: nameMap.get(r.ma_bravo)?.ten ?? null,
-        phan_loai:  nameMap.get(r.ma_bravo)?.phan_loai ?? null,
+        ten_vat_tu:     nameMap.get(r.ma_bravo)?.ten ?? null,
+        phan_loai:      nameMap.get(r.ma_bravo)?.phan_loai ?? null,
+        san_pham:       nameMap.get(r.ma_bravo)?.san_pham ?? null,
+        nhom_san_pham:  nameMap.get(r.ma_bravo)?.nhom_san_pham ?? null,
       }));
-      // Filter phan_loai sau enrich (vì phan_loai không có trong tai_san)
-      const filtered = payload.phan_loai
-        ? enriched.filter((r: any) => r.phan_loai === payload.phan_loai)
-        : enriched;
+      let filtered = enriched;
+      if (payload.phan_loai)
+        filtered = filtered.filter((r: any) => r.phan_loai === payload.phan_loai);
+      if (payload.nhom_san_pham)
+        filtered = filtered.filter((r: any) => r.nhom_san_pham === payload.nhom_san_pham);
 
       return { ok: true, rows: filtered, total: count ?? filtered.length, page, pageSize };
+    }
+
+    // KPI + options cho màn tài sản (aggregate, không phân trang)
+    case "tai_san_kpi": {
+      let q = admin.schema("app_ccdc").from("tai_san")
+        .select("ma_bravo, so_luong, nguyen_gia, tinh_trang")
+        .eq("trang_thai_hd", "Active");
+
+      if (payload.mien)        q = q.eq("mien", payload.mien);
+      if (payload.loai_vi_tri) q = q.eq("loai_vi_tri", payload.loai_vi_tri);
+      const search = sanitizeSearch(payload.search ?? "");
+      if (search) {
+        const s = search.replace(/"/g, "");
+        q = q.or(`ma_bravo.ilike.*${s}*,serial.ilike.*${s}*,pic.ilike.*${s}*,vi_tri.ilike.*${s}*`);
+      }
+
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+
+      const allMa = [...new Set(rows.map((r: any) => r.ma_bravo).filter(Boolean))];
+      let dmMap = new Map<string, { phan_loai: string; nhom_san_pham: string }>();
+      if (allMa.length) {
+        let start = 0;
+        while (start < allMa.length) {
+          const batch = allMa.slice(start, start + 200);
+          const { data: chunk, error: e } = await admin.schema("shared").from("dm_vat_tu")
+            .select("ma_bravo, phan_loai, nhom_san_pham").in("ma_bravo", batch);
+          if (e) throw new Error(e.message);
+          for (const d of (chunk ?? [])) {
+            dmMap.set(d.ma_bravo, { phan_loai: d.phan_loai, nhom_san_pham: d.nhom_san_pham });
+          }
+          start += 200;
+        }
+      }
+
+      const enriched = rows.map((r: any) => ({
+        ...r,
+        phan_loai:     dmMap.get(r.ma_bravo)?.phan_loai ?? null,
+        nhom_san_pham: dmMap.get(r.ma_bravo)?.nhom_san_pham ?? null,
+      }));
+
+      let baseForOptions = enriched;
+      if (payload.phan_loai)
+        baseForOptions = baseForOptions.filter((r: any) => r.phan_loai === payload.phan_loai);
+      const nhom_sp_options = [...new Set(
+        baseForOptions.map((r: any) => r.nhom_san_pham).filter(Boolean)
+      )].sort();
+
+      let filtered = baseForOptions;
+      if (payload.nhom_san_pham)
+        filtered = filtered.filter((r: any) => r.nhom_san_pham === payload.nhom_san_pham);
+
+      const sl = filtered.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+      const gia_tri = filtered.reduce((s: number, r: any) =>
+        s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
+      const gia_tri_dang_dung = filtered
+        .filter((r: any) => r.tinh_trang === "dang_dung")
+        .reduce((s: number, r: any) =>
+          s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
+
+      return { ok: true, sl, gia_tri, gia_tri_dang_dung, nhom_sp_options };
     }
 
     // ── Giao dịch (ledger) ──────────────────────────────────────────────

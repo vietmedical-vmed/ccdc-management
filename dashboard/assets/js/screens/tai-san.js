@@ -1,7 +1,7 @@
-// Màn Tài sản — list tai_san (Active), enrich tên + phan_loai từ dm_vat_tu.
-// Admin: hiện nút Sửa/Xoá + modal chỉnh sửa các field non-key.
+// Màn Tài sản — list tai_san (Active), enrich tên + phan_loai + san_pham từ dm_vat_tu.
+// Nhóm theo sản phẩm, lọc nhóm SP, thẻ KPI. Admin: Sửa/Xoá + modal.
 (function () {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
   const h = React.createElement;
   const { api } = window.CCDC_API;
 
@@ -166,10 +166,15 @@
     const [plKey, setPlKey]     = useState("all");
     const [mien, setMien]       = useState("");
     const [lvt, setLvt]         = useState("");
+    const [nhomSp, setNhomSp]   = useState("");
     const [search, setSearch]   = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError]     = useState("");
     const [editRow, setEditRow] = useState(null);
+
+    const [kpi, setKpi]         = useState({ sl: 0, gia_tri: 0, gia_tri_dang_dung: 0 });
+    const [nhomSpOptions, setNhomSpOptions] = useState([]);
+    const [collapsed, setCollapsed] = useState({});
 
     const debounceRef = useRef(null);
     const [searchApplied, setSearchApplied] = useState("");
@@ -178,46 +183,106 @@
       debounceRef.current = setTimeout(() => setSearchApplied(search.trim()), 300);
       return () => clearTimeout(debounceRef.current);
     }, [search]);
-    useEffect(() => { setPage(1); }, [plKey, mien, lvt, searchApplied]);
+    useEffect(() => { setPage(1); }, [plKey, mien, lvt, nhomSp, searchApplied]);
+
+    const plValue = PL_OPTIONS.find(x => x.key === plKey)?.value;
+
+    const fetchKpi = useCallback(async () => {
+      try {
+        const res = await api("tai_san_kpi", {
+          phan_loai: plValue, nhom_san_pham: nhomSp || null,
+          mien: mien || null, loai_vi_tri: lvt || null,
+          search: searchApplied,
+        });
+        setKpi({ sl: res.sl || 0, gia_tri: res.gia_tri || 0, gia_tri_dang_dung: res.gia_tri_dang_dung || 0 });
+        setNhomSpOptions(res.nhom_sp_options || []);
+      } catch (_) {}
+    }, [plValue, nhomSp, mien, lvt, searchApplied]);
 
     const fetchData = useCallback(async () => {
       setLoading(true); setError("");
       try {
-        const pl = PL_OPTIONS.find(x => x.key === plKey)?.value;
         const res = await api("list_tai_san", {
-          search: searchApplied, phan_loai: pl, mien: mien || null,
-          loai_vi_tri: lvt || null, page, pageSize: PAGE_SIZE,
+          search: searchApplied, phan_loai: plValue,
+          nhom_san_pham: nhomSp || null,
+          mien: mien || null, loai_vi_tri: lvt || null,
+          page, pageSize: PAGE_SIZE,
         });
         setRows(res.rows || []); setTotal(res.total || 0);
       } catch (e) { setError(e.message || String(e)); setRows([]); setTotal(0); }
       setLoading(false);
-    }, [plKey, mien, lvt, searchApplied, page]);
-    useEffect(() => { fetchData(); }, [fetchData]);
+    }, [plValue, nhomSp, mien, lvt, searchApplied, page]);
+
+    useEffect(() => { fetchData(); fetchKpi(); }, [fetchData, fetchKpi]);
 
     const del = async (r) => {
       if (!confirm(`Xoá tài sản #${r.id} (${r.ma_bravo}${r.serial ? " · " + r.serial : ""})?\n(Sẽ bị chặn nếu có giao dịch trỏ tới.)`)) return;
       try {
         const res = await api("delete_tai_san", { id: r.id });
         if (!res.ok) throw new Error(res.error + (res.details ? ": " + res.details : ""));
-        fetchData();
+        fetchData(); fetchKpi();
       } catch (e) { alert("Lỗi xoá: " + e.message); }
     };
 
     const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const tongGT = rows.reduce((s, r) => s + Number(r.so_luong || 0) * Number(r.nguyen_gia || 0), 0);
     const sel = "px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white outline-none focus:border-blue-400";
+
+    // Nhóm rows theo san_pham
+    const grouped = useMemo(() => {
+      const map = {};
+      for (const r of rows) {
+        const sp = r.san_pham || "Khác";
+        (map[sp] || (map[sp] = [])).push(r);
+      }
+      return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "vi"));
+    }, [rows]);
+
+    const toggleGroup = (sp) => setCollapsed(c => ({ ...c, [sp]: !c[sp] }));
+
+    const tyLeSuDung = kpi.gia_tri > 0
+      ? Math.round(kpi.gia_tri_dang_dung / kpi.gia_tri * 1000) / 10
+      : 0;
 
     const cols = ["Mã", "Tên", "Loại", "Serial", "Miền", "Vị trí", "PIC", "Tình trạng", "SL", "Nguyên giá"];
     if (isAdmin) cols.push("");
 
     return h("div", { className: "p-4 md:p-6 space-y-4" },
+      // Header
       h("div", { className: "flex items-baseline gap-3 flex-wrap" },
         h("h1", { className: "text-lg font-bold text-slate-900" }, "Tài sản"),
         h("span", { className: "text-xs text-slate-500" },
-          loading ? "đang tải…" : `${fmtInt(total)} dòng · nguyên giá trang này ${fmtMoney(tongGT)}₫`),
+          loading ? "đang tải…" : `${fmtInt(total)} dòng`),
         isAdmin && h("span", { className: "ml-2 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200" }, "ADMIN"),
       ),
 
+      // KPI Cards
+      h("div", { className: "grid grid-cols-1 sm:grid-cols-3 gap-3" },
+        h("div", { className: "bg-white border border-slate-200 rounded-lg px-4 py-3" },
+          h("div", { className: "text-xs font-semibold text-slate-500 uppercase tracking-wide" }, "SL tài sản"),
+          h("div", { className: "text-2xl font-bold text-slate-900 mt-1 tabular-nums" }, fmtInt(kpi.sl)),
+        ),
+        h("div", { className: "bg-white border border-slate-200 rounded-lg px-4 py-3" },
+          h("div", { className: "text-xs font-semibold text-slate-500 uppercase tracking-wide" }, "Giá trị tài sản"),
+          h("div", { className: "text-2xl font-bold text-slate-900 mt-1 tabular-nums" },
+            kpi.gia_tri > 0 ? fmtMoney(kpi.gia_tri) + "₫" : "—"),
+        ),
+        h("div", { className: "bg-white border border-slate-200 rounded-lg px-4 py-3" },
+          h("div", { className: "text-xs font-semibold text-slate-500 uppercase tracking-wide" }, "Tỷ lệ sử dụng"),
+          h("div", { className: "flex items-end gap-2 mt-1" },
+            h("span", { className: "text-2xl font-bold tabular-nums " +
+              (tyLeSuDung >= 80 ? "text-green-600" : tyLeSuDung >= 50 ? "text-amber-600" : "text-red-600") },
+              tyLeSuDung + "%"),
+            h("span", { className: "text-xs text-slate-400 mb-0.5" }, "đang dùng / tổng"),
+          ),
+          h("div", { className: "mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden" },
+            h("div", { className: "h-full rounded-full transition-all " +
+              (tyLeSuDung >= 80 ? "bg-green-500" : tyLeSuDung >= 50 ? "bg-amber-500" : "bg-red-500"),
+              style: { width: Math.min(100, tyLeSuDung) + "%" } }),
+          ),
+        ),
+      ),
+
+      // Filter toolbar
       h("div", { className: "flex flex-wrap items-center gap-2" },
         h("div", { className: "flex items-center gap-1 bg-white border border-slate-200 rounded-md p-0.5" },
           PL_OPTIONS.map(opt => h("button", {
@@ -225,6 +290,9 @@
             className: "px-3 py-1 text-xs font-semibold rounded " +
               (plKey === opt.key ? "bg-blue-500 text-white" : "text-slate-600 hover:bg-slate-100"),
           }, opt.label))),
+        h("select", { className: sel, value: nhomSp, onChange: e => setNhomSp(e.target.value) },
+          h("option", { value: "" }, "-- Nhóm SP --"),
+          nhomSpOptions.map(n => h("option", { key: n, value: n }, n))),
         h("select", { className: sel, value: mien, onChange: e => setMien(e.target.value) },
           MIEN_OPTIONS.map(m => h("option", { key: m, value: m }, m || "-- Miền --"))),
         h("select", { className: sel, value: lvt, onChange: e => setLvt(e.target.value) },
@@ -242,6 +310,7 @@
 
       error && h("div", { className: "bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded" }, "Lỗi: " + error),
 
+      // Grouped table
       h("div", { className: "bg-white border border-slate-200 rounded-lg overflow-hidden" },
         h("div", { className: "overflow-x-auto" },
           h("table", { className: "w-full text-sm" },
@@ -253,30 +322,56 @@
               rows.length === 0 && !loading
                 ? h("tr", null, h("td", { colSpan: cols.length, className: "px-3 py-8 text-center text-sm text-slate-400" },
                     "Chưa có tài sản nào"))
-                : rows.map(r => h("tr", { key: r.id, className: "border-b border-slate-100 hover:bg-slate-50" },
-                    h("td", { className: "px-3 py-2 font-mono text-xs text-slate-900" }, r.ma_bravo),
-                    h("td", { className: "px-3 py-2 text-slate-800" }, r.ten_vat_tu || "—"),
-                    h("td", { className: "px-3 py-2" },
-                      h("span", { className: "inline-block px-2 py-0.5 rounded text-[11px] font-semibold " +
-                        (r.phan_loai === "THIẾT BỊ" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"),
-                      }, r.phan_loai || "—")),
-                    h("td", { className: "px-3 py-2 font-mono text-xs text-slate-700" }, r.serial || "—"),
-                    h("td", { className: "px-3 py-2 text-slate-600 whitespace-nowrap" }, r.mien || "—"),
-                    h("td", { className: "px-3 py-2 text-slate-700 max-w-xs" },
-                      r.vi_tri ? h("span", null, r.vi_tri) :
-                      h("span", { className: "italic text-slate-400" }, r.loai_vi_tri || "—")),
-                    h("td", { className: "px-3 py-2 text-slate-700" }, r.pic || "—"),
-                    h("td", { className: "px-3 py-2 text-slate-600" }, TT_LABEL[r.tinh_trang] || r.tinh_trang),
-                    h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold" }, fmtInt(r.so_luong)),
-                    h("td", { className: "px-3 py-2 text-right tabular-nums" }, fmtMoney(Number(r.so_luong || 0) * Number(r.nguyen_gia || 0))),
-                    isAdmin && h("td", { className: "px-3 py-2 whitespace-nowrap" },
-                      h("button", { onClick: () => setEditRow(r),
-                        className: "text-xs text-blue-600 hover:underline mr-2" }, "Sửa"),
-                      h("button", { onClick: () => del(r),
-                        className: "text-xs text-red-600 hover:underline" }, "Xoá")),
-                  ))),
+                : grouped.map(([sp, items]) => {
+                    const isCollapsed = collapsed[sp];
+                    const grpSl = items.reduce((s, r) => s + Number(r.so_luong || 0), 0);
+                    const grpGt = items.reduce((s, r) => s + Number(r.so_luong || 0) * Number(r.nguyen_gia || 0), 0);
+                    return h(React.Fragment, { key: sp },
+                      h("tr", {
+                        className: "bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100",
+                        onClick: () => toggleGroup(sp),
+                      },
+                        h("td", { colSpan: cols.length - 2, className: "px-3 py-2" },
+                          h("span", { className: "inline-flex items-center gap-2" },
+                            h("span", { className: "text-slate-400 text-xs w-4 text-center" }, isCollapsed ? "▶" : "▼"),
+                            h("span", { className: "font-semibold text-slate-800 text-sm" }, sp),
+                            h("span", { className: "text-xs text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded-full" },
+                              items.length + " mã"),
+                          ),
+                        ),
+                        h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold text-slate-700 text-xs" }, fmtInt(grpSl)),
+                        h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-700 text-xs" }, fmtMoney(grpGt) + "₫"),
+                        isAdmin && h("td"),
+                      ),
+                      !isCollapsed && items.map(r =>
+                        h("tr", { key: r.id, className: "border-b border-slate-100 hover:bg-slate-50" },
+                          h("td", { className: "px-3 py-2 font-mono text-xs text-slate-900 pl-8" }, r.ma_bravo),
+                          h("td", { className: "px-3 py-2 text-slate-800" }, r.ten_vat_tu || "—"),
+                          h("td", { className: "px-3 py-2" },
+                            h("span", { className: "inline-block px-2 py-0.5 rounded text-[11px] font-semibold " +
+                              (r.phan_loai === "THIẾT BỊ" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"),
+                            }, r.phan_loai || "—")),
+                          h("td", { className: "px-3 py-2 font-mono text-xs text-slate-700" }, r.serial || "—"),
+                          h("td", { className: "px-3 py-2 text-slate-600 whitespace-nowrap" }, r.mien || "—"),
+                          h("td", { className: "px-3 py-2 text-slate-700 max-w-xs" },
+                            r.vi_tri ? h("span", null, r.vi_tri) :
+                            h("span", { className: "italic text-slate-400" }, r.loai_vi_tri || "—")),
+                          h("td", { className: "px-3 py-2 text-slate-700" }, r.pic || "—"),
+                          h("td", { className: "px-3 py-2 text-slate-600" }, TT_LABEL[r.tinh_trang] || r.tinh_trang),
+                          h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold" }, fmtInt(r.so_luong)),
+                          h("td", { className: "px-3 py-2 text-right tabular-nums" }, fmtMoney(Number(r.so_luong || 0) * Number(r.nguyen_gia || 0))),
+                          isAdmin && h("td", { className: "px-3 py-2 whitespace-nowrap" },
+                            h("button", { onClick: () => setEditRow(r),
+                              className: "text-xs text-blue-600 hover:underline mr-2" }, "Sửa"),
+                            h("button", { onClick: () => del(r),
+                              className: "text-xs text-red-600 hover:underline" }, "Xoá")),
+                        )),
+                    );
+                  }),
+            ),
           ),
         ),
+        // Pagination
         h("div", { className: "flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-slate-50 text-xs text-slate-600" },
           h("div", null, total > 0 ? `Hiển thị ${(page-1)*PAGE_SIZE+1}–${Math.min(page*PAGE_SIZE, total)} / ${fmtInt(total)}` : "—"),
           h("div", { className: "flex items-center gap-1" },
@@ -293,7 +388,7 @@
         ),
       ),
 
-      editRow && h(EditModal, { row: editRow, onClose: () => setEditRow(null), onSaved: fetchData }),
+      editRow && h(EditModal, { row: editRow, onClose: () => setEditRow(null), onSaved: () => { fetchData(); fetchKpi(); } }),
     );
   }
 
