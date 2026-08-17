@@ -300,7 +300,7 @@ async function handleAction(
           .select("phan_loai", { count: "exact", head: false })
           .in("phan_loai", ["CCDC", "THIẾT BỊ"]),
         admin.schema("app_ccdc").from("tai_san")
-          .select("id, so_luong, nguyen_gia, mien, vi_tri, pic, trang_thai_hd")
+          .select("id, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
           .eq("trang_thai_hd", "Active"),
         admin.schema("app_ccdc").from("giao_dich")
           .select("ngay, loai, thanh_tien, so_luong")
@@ -356,7 +356,7 @@ async function handleAction(
         chart_theo_ky.push({ ky: k, ...(chartMap[k] ?? { nhap_moi: 0, huy: 0 }) });
       }
 
-      // Tồn theo miền → vị trí → PIC (cây 3 cấp)
+      // Tồn theo miền → loại vị trí → PIC (cây 3 cấp)
       type TonPic  = { sl: number; nguyen_gia: number };
       type TonViTri = { sl: number; nguyen_gia: number; pics: Record<string, TonPic> };
       type TonMien = { sl: number; nguyen_gia: number; vitris: Record<string, TonViTri> };
@@ -364,7 +364,7 @@ async function handleAction(
       for (const r of ts) {
         const sl  = Number(r.so_luong ?? 0);
         const val = sl * Number(r.nguyen_gia ?? 0);
-        const mk = r.mien || "—", vt = r.vi_tri || "—", pic = r.pic || "—";
+        const mk = r.mien || "—", vt = r.loai_vi_tri || "—", pic = r.pic || "—";
         const M = (tonByMien[mk] ??= { sl: 0, nguyen_gia: 0, vitris: {} });
         M.sl += sl; M.nguyen_gia += val;
         const V = (M.vitris[vt] ??= { sl: 0, nguyen_gia: 0, pics: {} });

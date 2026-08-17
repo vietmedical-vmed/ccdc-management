@@ -240,9 +240,8 @@
         for (const p of (v.children || [])) {
           out.push(h("tr", { key: vk + "|p:" + p.pic, className: "border-t border-slate-50 bg-slate-50/50 text-slate-600" },
             h("td", { className: "pl-14 pr-3 py-1.5" },
-              h("span", { className: "inline-block w-4" }),
-              h("span", { className: "text-xs text-slate-400 mr-1" }, "PIC:"), p.pic),
-            h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtInt(p.sl)),
+              h("span", { className: "inline-block w-4" }), p.pic),
+            h("td", { className: "px-3 py-1.5" }),
             h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtShort(p.nguyen_gia)),
           ));
         }
