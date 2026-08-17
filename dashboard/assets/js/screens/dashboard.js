@@ -191,13 +191,10 @@
 
   // ─── Tồn theo miền → vị trí → PIC (cây 3 cấp expand) ──────
   function TonTheoMien({ rows }) {
-    // Mặc định mở cấp miền + vị trí (không mở PIC)
+    // Mặc định chỉ mở cấp miền → hiện vị trí, PIC vẫn ẩn tới khi bấm vị trí
     const [open, setOpen] = useState(() => {
       const s = new Set();
-      for (const m of rows) {
-        s.add("m:" + m.mien);
-        for (const v of (m.children || [])) s.add("m:" + m.mien + "|v:" + v.vi_tri);
-      }
+      for (const m of rows) s.add("m:" + m.mien);
       return s;
     });
     const toggle = (key) => setOpen((prev) => {
