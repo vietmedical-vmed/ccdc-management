@@ -189,6 +189,81 @@
     );
   }
 
+  // ─── Tồn theo miền → vị trí → PIC (cây 3 cấp expand) ──────
+  function TonTheoMien({ rows }) {
+    const [open, setOpen] = useState(() => new Set());
+    const toggle = (key) => setOpen((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+    // level: 0=miền, 1=vị trí, 2=PIC. Cột 1 thụt lề & style theo cấp.
+    const branchRow = (key, label, sub, kids, level, r) => {
+      const isOpen = open.has(key);
+      const hasKids = kids && kids.length;
+      const pad = { 0: "px-3", 1: "pl-8 pr-3", 2: "pl-14 pr-3" }[level];
+      const rowCls = {
+        0: "border-t border-slate-100 hover:bg-slate-50 font-semibold text-slate-800",
+        1: "border-t border-slate-50 bg-slate-50/30 hover:bg-slate-100/60 text-slate-700",
+        2: "border-t border-slate-50 bg-slate-50/50 text-slate-600",
+      }[level];
+      const py = level === 0 ? "py-2" : "py-1.5";
+      return h("tr", {
+        key,
+        className: rowCls + (hasKids ? " cursor-pointer select-none" : ""),
+        onClick: hasKids ? () => toggle(key) : undefined,
+      },
+        h("td", { className: pad + " " + py },
+          hasKids
+            ? h("span", {
+                className: "inline-block w-4 text-slate-400",
+                style: { transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 120ms" },
+              }, "▸")
+            : h("span", { className: "inline-block w-4" }),
+          label,
+          hasKids ? h("span", { className: "ml-1.5 text-xs font-normal text-slate-400" }, "(" + kids.length + ")") : null,
+          sub ? h("span", { className: "ml-1.5 text-xs font-normal text-slate-400" }, sub) : null,
+        ),
+        h("td", { className: "px-3 " + py + " text-right tabular-nums" + (level === 0 ? " font-semibold" : "") }, fmtInt(r.sl)),
+        h("td", { className: "px-3 " + py + " text-right tabular-nums" }, fmtShort(r.nguyen_gia)),
+      );
+    };
+
+    const render = (rowsArr) => rowsArr.flatMap((m) => {
+      const out = [branchRow("m:" + m.mien, m.mien, null, m.children, 0, m)];
+      if (!open.has("m:" + m.mien)) return out;
+      for (const v of (m.children || [])) {
+        const vk = "m:" + m.mien + "|v:" + v.vi_tri;
+        out.push(branchRow(vk, v.vi_tri, null, v.children, 1, v));
+        if (!open.has(vk)) continue;
+        for (const p of (v.children || [])) {
+          out.push(h("tr", { key: vk + "|p:" + p.pic, className: "border-t border-slate-50 bg-slate-50/50 text-slate-600" },
+            h("td", { className: "pl-14 pr-3 py-1.5" },
+              h("span", { className: "inline-block w-4" }),
+              h("span", { className: "text-xs text-slate-400 mr-1" }, "PIC:"), p.pic),
+            h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtInt(p.sl)),
+            h("td", { className: "px-3 py-1.5 text-right tabular-nums" }, fmtShort(p.nguyen_gia)),
+          ));
+        }
+      }
+      return out;
+    });
+
+    return h("table", { className: "w-full text-sm" },
+      h("thead", { className: "bg-slate-50" },
+        h("tr", null,
+          h("th", { className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase" }, "Miền → Vị trí → PIC"),
+          h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "SL"),
+          h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "Nguyên giá"),
+        )),
+      h("tbody", null,
+        rows.length === 0
+          ? h("tr", null, h("td", { colSpan: 3, className: "px-3 py-6 text-center text-sm text-slate-400" }, "Chưa có tài sản"))
+          : render(rows)),
+    );
+  }
+
   // ────────────────────────────────────────────────────────────────
   // MÀN TỔNG QUAN
   // ────────────────────────────────────────────────────────────────
@@ -266,25 +341,13 @@
 
       // 2 cột: Tồn theo miền + Recent GD
       h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-        // Tồn theo miền
+        // Tồn theo miền (expand → vị trí/PIC)
         h("div", { className: "bg-white border border-slate-200 rounded-lg overflow-hidden" },
-          h("div", { className: "px-4 py-3 border-b border-slate-200 font-semibold text-sm text-slate-700" }, "Tồn theo miền"),
-          h("table", { className: "w-full text-sm" },
-            h("thead", { className: "bg-slate-50" },
-              h("tr", null,
-                h("th", { className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase" }, "Miền"),
-                h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "SL"),
-                h("th", { className: "px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase" }, "Nguyên giá"),
-              )),
-            h("tbody", null,
-              ton.length === 0
-                ? h("tr", null, h("td", { colSpan: 3, className: "px-3 py-6 text-center text-sm text-slate-400" }, "Chưa có tài sản"))
-                : ton.map((r, i) => h("tr", { key: i, className: "border-t border-slate-100" },
-                    h("td", { className: "px-3 py-2 text-slate-800" }, r.mien),
-                    h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold" }, fmtInt(r.sl)),
-                    h("td", { className: "px-3 py-2 text-right tabular-nums" }, fmtShort(r.nguyen_gia)),
-                  ))),
+          h("div", { className: "px-4 py-3 border-b border-slate-200 font-semibold text-sm text-slate-700 flex items-center justify-between" },
+            h("span", null, "Tồn theo miền"),
+            h("span", { className: "text-xs font-normal text-slate-400" }, "Ấn miền để xem vị trí / PIC"),
           ),
+          h(TonTheoMien, { rows: ton }),
         ),
 
         // Recent GD

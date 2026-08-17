@@ -300,7 +300,7 @@ async function handleAction(
           .select("phan_loai", { count: "exact", head: false })
           .in("phan_loai", ["CCDC", "THIẾT BỊ"]),
         admin.schema("app_ccdc").from("tai_san")
-          .select("id, so_luong, nguyen_gia, mien, trang_thai_hd")
+          .select("id, so_luong, nguyen_gia, mien, vi_tri, pic, trang_thai_hd")
           .eq("trang_thai_hd", "Active"),
         admin.schema("app_ccdc").from("giao_dich")
           .select("ngay, loai, thanh_tien, so_luong")
@@ -356,14 +356,23 @@ async function handleAction(
         chart_theo_ky.push({ ky: k, ...(chartMap[k] ?? { nhap_moi: 0, huy: 0 }) });
       }
 
-      // Tồn theo miền
-      const tonByMien: Record<string, { sl: number; nguyen_gia: number }> = {};
+      // Tồn theo miền → vị trí → PIC (cây 3 cấp)
+      type TonPic  = { sl: number; nguyen_gia: number };
+      type TonViTri = { sl: number; nguyen_gia: number; pics: Record<string, TonPic> };
+      type TonMien = { sl: number; nguyen_gia: number; vitris: Record<string, TonViTri> };
+      const tonByMien: Record<string, TonMien> = {};
       for (const r of ts) {
-        const k = r.mien || "—";
-        (tonByMien[k] ??= { sl: 0, nguyen_gia: 0 });
-        tonByMien[k].sl += Number(r.so_luong ?? 0);
-        tonByMien[k].nguyen_gia += Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0);
+        const sl  = Number(r.so_luong ?? 0);
+        const val = sl * Number(r.nguyen_gia ?? 0);
+        const mk = r.mien || "—", vt = r.vi_tri || "—", pic = r.pic || "—";
+        const M = (tonByMien[mk] ??= { sl: 0, nguyen_gia: 0, vitris: {} });
+        M.sl += sl; M.nguyen_gia += val;
+        const V = (M.vitris[vt] ??= { sl: 0, nguyen_gia: 0, pics: {} });
+        V.sl += sl; V.nguyen_gia += val;
+        const P = (V.pics[pic] ??= { sl: 0, nguyen_gia: 0 });
+        P.sl += sl; P.nguyen_gia += val;
       }
+      const byNguyenGia = (a: any, b: any) => b.nguyen_gia - a.nguyen_gia;
 
       // 10 GD gần nhất + enrich tên
       const recent = recentRes.data ?? [];
@@ -385,7 +394,15 @@ async function handleAction(
           tong_nguyen_gia, tong_gia_tri_con_lai,
           mua_moi_ytd, huy_ytd, ngan_sach_ca_nam,
         },
-        ton_by_mien: Object.entries(tonByMien).map(([mien, v]) => ({ mien, ...v })),
+        ton_by_mien: Object.entries(tonByMien).map(([mien, M]) => ({
+          mien, sl: M.sl, nguyen_gia: M.nguyen_gia,
+          children: Object.entries(M.vitris).map(([vi_tri, V]) => ({
+            vi_tri, sl: V.sl, nguyen_gia: V.nguyen_gia,
+            children: Object.entries(V.pics).map(([pic, P]) => ({
+              pic, sl: P.sl, nguyen_gia: P.nguyen_gia,
+            })).sort(byNguyenGia),
+          })).sort(byNguyenGia),
+        })).sort(byNguyenGia),
         budget,
         chart_theo_ky,
         recent_giao_dich: recent_enriched,
