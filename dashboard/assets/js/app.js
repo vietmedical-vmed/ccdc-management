@@ -42,7 +42,7 @@
               ),
             ),
             h("div", { className: "flex flex-col items-end gap-2" },
-              h("div", { className: "text-[11px] text-slate-400 italic hidden md:block" },
+              h("div", { className: "text-[9px] text-slate-400 italic hidden md:block" },
                 "Designed and developed by ",
                 h("span", { className: "font-semibold text-slate-500 not-italic" }, "Do Hoang Giang"),
               ),
@@ -59,7 +59,7 @@
             ),
           ),
           // Hàng dưới: tab gạch chân
-          h("nav", { className: "flex items-center gap-5 md:gap-6 mt-3 overflow-x-auto" },
+          h("nav", { className: "flex items-center gap-5 md:gap-6 mt-3 overflow-x-auto overflow-y-hidden" },
             NAV.map((it) => h("button", {
               key: it.path,
               onClick: () => R.navigate(it.path),
