@@ -25,7 +25,7 @@
   function Shell({ user, onLogout }) {
     const path = R.useRoute();
     const Screen = R.get(path);
-    const subtitle = [user.role || "—", user.mien ? "Miền " + user.mien : "Toàn hệ thống"].join(" · ");
+    const subtitle = user.ho_ten || user.username || "—";
 
     return h("div", { className: "min-h-screen bg-slate-50" },
       h("header", { className: "bg-white border-b border-slate-200" },
