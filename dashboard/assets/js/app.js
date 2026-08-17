@@ -29,7 +29,7 @@
 
     return h("div", { className: "min-h-screen bg-slate-50" },
       h("header", { className: "bg-white border-b border-slate-200" },
-        h("div", { className: "max-w-7xl mx-auto px-4" },
+        h("div", { className: "w-full px-4 md:px-6" },
           // Hàng trên: avatar + tiêu đề · credit góc phải + nút
           h("div", { className: "flex items-start justify-between pt-3 gap-4" },
             h("div", { className: "flex items-center gap-3" },
@@ -71,7 +71,7 @@
           ),
         ),
       ),
-      h("main", { className: "max-w-7xl mx-auto" },
+      h("main", { className: "w-full" },
         Screen
           ? h(Screen, { user })
           : h("div", { className: "p-6 text-slate-500 text-sm" }, "Màn hình chưa được xây: ", path),
