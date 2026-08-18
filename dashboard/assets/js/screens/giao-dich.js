@@ -31,7 +31,7 @@
     { key: "da_thanh_ly",  label: "Đã thanh lý" },
   ];
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 30;
   const today = () => new Date().toISOString().slice(0, 10);
   const fmtInt = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString("vi-VN");
   const fmtMoney = (n) => (n == null || Number(n) === 0) ? "—" : Math.round(Number(n)).toLocaleString("vi-VN");

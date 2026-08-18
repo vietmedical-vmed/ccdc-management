@@ -10,7 +10,7 @@
     { key: "ccdc",    label: "CCDC",      value: ["CCDC"] },
     { key: "thietbi", label: "Thiết bị",  value: ["THIẾT BỊ"] },
   ];
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 30;
 
   const fmtInt = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString("vi-VN");
 

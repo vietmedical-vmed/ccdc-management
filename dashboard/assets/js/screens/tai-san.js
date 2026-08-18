@@ -19,7 +19,7 @@
   ];
   const TT_LABEL = Object.fromEntries(TT_OPTIONS.map(o => [o.key, o.label]));
   const TTHD_OPTIONS = ["Active", "Inactive"];
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 30;
   const fmtInt = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString("vi-VN");
   const fmtMoney = (n) => (n == null || n === 0) ? "—" : Math.round(Number(n)).toLocaleString("vi-VN");
   const parseMoney = (s) => { if (!s) return 0; return Number(String(s).replace(/[.,\s₫đ]/g, "")) || 0; };
