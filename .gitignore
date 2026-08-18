@@ -6,6 +6,10 @@ supabase/.branches/
 .env.*
 *.key
 
+# Python cache
+__pycache__/
+*.pyc
+
 # OS / editor
 Thumbs.db
 .DS_Store

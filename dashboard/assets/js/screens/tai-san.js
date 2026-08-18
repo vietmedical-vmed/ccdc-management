@@ -34,6 +34,7 @@
       mien: row.mien || "",
       vi_tri: row.vi_tri || "",
       pic: row.pic || "",
+      pic_id: row.pic_id || "",
       tinh_trang: row.tinh_trang || "dang_dung",
       trang_thai_hd: row.trang_thai_hd || "Active",
       so_luong: String(row.so_luong ?? 1),
@@ -54,6 +55,7 @@
           mien: f.mien || null,
           vi_tri: f.vi_tri || null,
           pic: f.pic || null,
+          pic_id: f.pic_id.trim() || null,
           tinh_trang: f.tinh_trang,
           trang_thai_hd: f.trang_thai_hd,
           so_luong: Number(f.so_luong) || 0,
@@ -106,11 +108,13 @@
 
           h("div", { className: "grid grid-cols-2 gap-3" },
             h("div", null,
-              h("div", { className: labelCls + " mb-1" }, "Vị trí cụ thể"),
-              h("input", { className: inputCls, value: f.vi_tri, onChange: e => setF({ ...f, vi_tri: e.target.value }) })),
-            h("div", null,
-              h("div", { className: labelCls + " mb-1" }, "PIC"),
+              h("div", { className: labelCls + " mb-1" }, "PIC (tên người)"),
               h("input", { className: inputCls, value: f.pic, onChange: e => setF({ ...f, pic: e.target.value }) })),
+            h("div", null,
+              h("div", { className: labelCls + " mb-1" }, "PIC ID (mã điểm)"),
+              h("input", { className: inputCls + " font-mono text-xs", value: f.pic_id,
+                onChange: e => setF({ ...f, pic_id: e.target.value }),
+                placeholder: "VD: HN.CTCH.180211" })),
           ),
 
           h("div", { className: "grid grid-cols-2 gap-3" },
@@ -243,7 +247,7 @@
       ? Math.round(kpi.gia_tri_dang_dung / kpi.gia_tri * 1000) / 10
       : 0;
 
-    const cols = ["Mã", "Tên", "Loại", "Serial", "Miền", "Vị trí", "PIC", "Tình trạng", "SL", "Nguyên giá"];
+    const cols = ["Mã", "Tên", "Loại", "Serial", "Miền", "Loại vị trí", "PIC", "PIC ID", "Tình trạng", "SL", "Nguyên giá"];
     if (isAdmin) cols.push("");
 
     return h("div", { className: "p-4 md:p-6 space-y-4" },
@@ -353,10 +357,9 @@
                             }, r.phan_loai || "—")),
                           h("td", { className: "px-3 py-2 font-mono text-xs text-slate-700 whitespace-nowrap" }, r.serial || "—"),
                           h("td", { className: "px-3 py-2 text-slate-600 whitespace-nowrap" }, r.mien || "—"),
-                          h("td", { className: "px-3 py-2 text-slate-700 whitespace-nowrap" },
-                            r.vi_tri ? h("span", null, r.vi_tri) :
-                            h("span", { className: "italic text-slate-400" }, r.loai_vi_tri || "—")),
+                          h("td", { className: "px-3 py-2 text-slate-700 whitespace-nowrap" }, r.loai_vi_tri || "—"),
                           h("td", { className: "px-3 py-2 text-slate-700 whitespace-nowrap" }, r.pic || "—"),
+                          h("td", { className: "px-3 py-2 font-mono text-xs text-slate-600 whitespace-nowrap" }, r.pic_id || "—"),
                           h("td", { className: "px-3 py-2 text-slate-600 whitespace-nowrap" }, TT_LABEL[r.tinh_trang] || r.tinh_trang),
                           h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap" }, fmtInt(r.so_luong)),
                           h("td", { className: "px-3 py-2 text-right tabular-nums whitespace-nowrap" }, fmtMoney(Number(r.so_luong || 0) * Number(r.nguyen_gia || 0))),

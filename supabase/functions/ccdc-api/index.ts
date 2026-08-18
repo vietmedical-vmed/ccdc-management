@@ -152,7 +152,7 @@ async function handleAction(
       const to = from + pageSize - 1;
 
       let q = admin.schema("app_ccdc").from("tai_san")
-        .select("id, ma_bravo, serial, vi_tri, loai_vi_tri, mien, pic, " +
+        .select("id, ma_bravo, serial, vi_tri, loai_vi_tri, mien, pic, pic_id, " +
                 "tinh_trang, trang_thai_hd, so_luong, nguyen_gia, ngay_mua",
                 { count: "exact" })
         .eq("trang_thai_hd", "Active");
@@ -162,7 +162,7 @@ async function handleAction(
       const search = sanitizeSearch(payload.search ?? "");
       if (search) {
         const s = search.replace(/"/g, "");
-        q = q.or(`ma_bravo.ilike.*${s}*,serial.ilike.*${s}*,pic.ilike.*${s}*,vi_tri.ilike.*${s}*`);
+        q = q.or(`ma_bravo.ilike.*${s}*,serial.ilike.*${s}*,pic.ilike.*${s}*,pic_id.ilike.*${s}*,vi_tri.ilike.*${s}*`);
       }
 
       q = q.order("ma_bravo").order("id").range(from, to);
@@ -497,7 +497,7 @@ async function handleAction(
         return { ok: false, error: "forbidden_not_admin" };
       const { id, ...fields } = payload ?? {};
       if (!id) return { ok: false, error: "missing_id" };
-      const allow = ["serial", "vi_tri", "loai_vi_tri", "mien", "pic",
+      const allow = ["serial", "vi_tri", "loai_vi_tri", "mien", "pic", "pic_id",
         "tinh_trang", "trang_thai_hd", "so_luong", "nguyen_gia",
         "ngay_mua", "ghi_chu"];
       const update: Record<string, unknown> = {};
@@ -553,6 +553,7 @@ async function handleAction(
           loai_vi_tri:   p.loai_vi_tri || null,
           mien:          p.mien        || null,
           pic:           p.pic         || null,
+          pic_id:        p.pic_id      || null,
           tinh_trang:   "dang_dung",
           trang_thai_hd: "Active",
           so_luong:     sl,
@@ -627,10 +628,10 @@ async function handleAction(
       // ─── Điều chuyển ──────────────────────────────────────────────
       if (loai === "dieu_chuyen") {
         const dest = {
-          vi_tri:      p.vi_tri_den      ?? null,
           loai_vi_tri: p.loai_vi_tri_den ?? source.loai_vi_tri,
           mien:        p.mien_den        ?? source.mien,
           pic:         p.pic_den         ?? null,
+          pic_id:      p.pic_id_den      ?? null,
         };
         if (isFull) {
           const { error: eU } = await app.from("tai_san").update({
@@ -646,6 +647,7 @@ async function handleAction(
           if (eD) throw new Error(eD.message);
           const { data: nr, error: eN } = await app.from("tai_san").insert({
             ma_bravo: source.ma_bravo, serial: null,
+            vi_tri: source.vi_tri, // giữ nguyên (chỉ dùng cho TB legacy)
             ...dest,
             tinh_trang: source.tinh_trang, trang_thai_hd: "Active",
             so_luong: qty, nguyen_gia: source.nguyen_gia,
@@ -654,12 +656,13 @@ async function handleAction(
           if (eN) throw new Error(eN.message);
           target_id = nr.id;
         }
+        // Ledger: dùng pic_id_tu/pic_id_den (giữ cột vi_tri_tu/den để backward compat)
         const { error: eG } = await app.from("giao_dich").insert({
           ngay: nowDate, loai: "dieu_chuyen", ma_bravo: source.ma_bravo,
           tai_san_id: target_id, so_luong: qty,
           don_gia: Number(source.nguyen_gia),
-          vi_tri_tu:  source.vi_tri, pic_tu:  source.pic,
-          vi_tri_den: dest.vi_tri,   pic_den: dest.pic,
+          vi_tri_tu:  source.pic_id, pic_tu:  source.pic,
+          vi_tri_den: dest.pic_id,   pic_den: dest.pic,
           ghi_chu: p.ghi_chu || null,
         });
         if (eG) throw new Error(eG.message);

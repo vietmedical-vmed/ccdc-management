@@ -52,7 +52,7 @@
     const [dmSearch, setDmSearch] = useState("");
     const [nhapItems, setNhapItems] = useState([]);   // [{ma_bravo, ten, phan_loai, serial, so_luong, don_gia}]
     const [nhapShared, setNhapShared] = useState({
-      loai_vi_tri: "", mien: "", vi_tri: "", pic: "", ngay_mua: today(), ghi_chu: "",
+      loai_vi_tri: "", mien: "", pic: "", pic_id: "", ngay_mua: today(), ghi_chu: "",
     });
 
     // Huỷ/Mất/Điều chuyển
@@ -61,7 +61,7 @@
     const [tsPicks, setTsPicks]   = useState([]);     // [tai_san row]
     const [thaoShared, setThaoShared] = useState({
       ngay: today(), ghi_chu: "", tinh_trang_dich: "hong",
-      vi_tri_den: "", loai_vi_tri_den: "", mien_den: "", pic_den: "",
+      pic_id_den: "", loai_vi_tri_den: "", mien_den: "", pic_den: "",
     });
 
     // Reset khi đóng/mở
@@ -69,10 +69,10 @@
       if (!open) return;
       setMode("nhap_moi"); setError(""); setBusy(false); setProgress(null);
       setDmSearch(""); setNhapItems([]);
-      setNhapShared({ loai_vi_tri: "", mien: "", vi_tri: "", pic: "", ngay_mua: today(), ghi_chu: "" });
+      setNhapShared({ loai_vi_tri: "", mien: "", pic: "", pic_id: "", ngay_mua: today(), ghi_chu: "" });
       setTsSearch(""); setTsPicks([]);
       setThaoShared({ ngay: today(), ghi_chu: "", tinh_trang_dich: "hong",
-        vi_tri_den: "", loai_vi_tri_den: "", mien_den: "", pic_den: "" });
+        pic_id_den: "", loai_vi_tri_den: "", mien_den: "", pic_den: "" });
     }, [open]);
 
     // Fetch dm_vat_tu
@@ -144,8 +144,8 @@
               don_gia:     Number(it.don_gia) || 0,
               loai_vi_tri: nhapShared.loai_vi_tri || null,
               mien:        nhapShared.mien || null,
-              vi_tri:      nhapShared.vi_tri || null,
               pic:         nhapShared.pic || null,
+              pic_id:      nhapShared.pic_id || null,
               ngay:        nhapShared.ngay_mua,
               ngay_mua:    nhapShared.ngay_mua,
               ghi_chu:     nhapShared.ghi_chu || null,
@@ -155,8 +155,8 @@
           }
         } else {
           if (!tsPicks.length) throw new Error("Chưa tick tài sản nào");
-          if (mode === "dieu_chuyen" && !thaoShared.pic_den && !thaoShared.vi_tri_den)
-            throw new Error("Điều chuyển: cần nhập PIC đích hoặc vị trí đích");
+          if (mode === "dieu_chuyen" && !thaoShared.pic_den && !thaoShared.pic_id_den)
+            throw new Error("Điều chuyển: cần nhập PIC đích hoặc PIC ID đích");
           setProgress({ done: 0, total: tsPicks.length });
           for (let i = 0; i < tsPicks.length; i++) {
             const t = tsPicks[i];
@@ -169,7 +169,7 @@
             };
             if (mode === "huy") payload.tinh_trang_dich = thaoShared.tinh_trang_dich;
             if (mode === "dieu_chuyen") {
-              payload.vi_tri_den      = thaoShared.vi_tri_den      || null;
+              payload.pic_id_den      = thaoShared.pic_id_den      || null;
               payload.loai_vi_tri_den = thaoShared.loai_vi_tri_den || null;
               payload.mien_den        = thaoShared.mien_den        || null;
               payload.pic_den         = thaoShared.pic_den         || null;
@@ -355,13 +355,14 @@
         ),
         h("div", { className: "grid grid-cols-2 gap-3 mt-2" },
           h("div", null,
-            h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "Vị trí cụ thể (BV, kho…)"),
-            h("input", { className: inputCls, value: nhapShared.vi_tri,
-              onChange: e => setNhapShared({ ...nhapShared, vi_tri: e.target.value }) })),
-          h("div", null,
-            h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "PIC (tên người/BV)"),
+            h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "PIC (tên người)"),
             h("input", { className: inputCls, value: nhapShared.pic,
               onChange: e => setNhapShared({ ...nhapShared, pic: e.target.value }) })),
+          h("div", null,
+            h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "PIC ID (mã điểm)"),
+            h("input", { className: inputCls + " font-mono text-xs", value: nhapShared.pic_id,
+              placeholder: "VD: HN.CTCH.180211",
+              onChange: e => setNhapShared({ ...nhapShared, pic_id: e.target.value }) })),
         ),
         h("div", { className: "grid grid-cols-2 gap-3 mt-2" },
           h("div", null,
@@ -412,7 +413,7 @@
                       h("span", { className: "text-slate-700" }, r.ten_vat_tu),
                     ),
                     h("div", { className: "text-[11px] text-slate-500 mt-0.5" },
-                      `SL=${fmtInt(r.so_luong)} · ${r.pic || "—"} · ${r.vi_tri || r.loai_vi_tri || "—"} · ${r.mien || "—"}`),
+                      `SL=${fmtInt(r.so_luong)} · ${r.pic || "—"} · ${r.pic_id || r.loai_vi_tri || "—"} · ${r.mien || "—"}`),
                   ),
                 );
               })),
@@ -472,9 +473,10 @@
           ),
           h("div", { className: "grid grid-cols-2 gap-3 mt-2" },
             h("div", null,
-              h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "Vị trí cụ thể đích"),
-              h("input", { className: inputCls, value: thaoShared.vi_tri_den,
-                onChange: e => setThaoShared({ ...thaoShared, vi_tri_den: e.target.value }) })),
+              h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "PIC ID đích"),
+              h("input", { className: inputCls + " font-mono text-xs", value: thaoShared.pic_id_den,
+                placeholder: "VD: HN.CTCH.180211",
+                onChange: e => setThaoShared({ ...thaoShared, pic_id_den: e.target.value }) })),
             h("div", null,
               h("div", { className: "text-[11px] text-slate-500 mb-0.5" }, "PIC đích"),
               h("input", { className: inputCls, value: thaoShared.pic_den,

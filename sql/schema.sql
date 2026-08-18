@@ -79,6 +79,7 @@ create table if not exists app_ccdc.tai_san (
   loai_vi_tri   text check (loai_vi_tri in ('Kho','Sale/KTV','Bệnh viện')),
   mien          text,                          -- Miền Bắc / Miền Trung / Miền Nam
   pic           text,                          -- lưu bằng TÊN
+  pic_id        text,                          -- mã điểm nội bộ (từ Excel PIC ID)
   tinh_trang    text not null default 'dang_dung'
                   check (tinh_trang in
                     ('dang_dung','dang_sua','hong','mat','cho_thanh_ly','da_thanh_ly')),
@@ -95,6 +96,9 @@ create table if not exists app_ccdc.tai_san (
 create unique index if not exists ux_tai_san_serial
   on app_ccdc.tai_san(serial) where serial is not null;
 create index if not exists ix_tai_san_ma on app_ccdc.tai_san(ma_bravo);
+
+-- Idempotent add cho DB đã có bảng từ trước
+alter table app_ccdc.tai_san add column if not exists pic_id text;
 
 
 -- --------------------------------------------------------------------
