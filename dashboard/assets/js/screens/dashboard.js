@@ -298,28 +298,22 @@
     const ton     = data.ton_by_mien || [];
     const budget  = data.budget || [];
     const chart   = data.chart_theo_ky || [];
-    const recent  = data.recent_giao_dich || [];
+    const recent  = (data.recent_giao_dich || []).slice()
+      .sort((a, b) => String(b.ngay).localeCompare(String(a.ngay)) || (b.id - a.id));
     const fy      = data.fy;
     const fyLabel = "FY" + String(fy).slice(-2);
 
-    return h("div", { className: "p-4 md:p-6 space-y-6" },
-      // Greeting
-      h("div", { className: "flex items-baseline justify-between flex-wrap gap-2" },
-        h("div", { className: "text-sm text-slate-600" },
-          "Chào ", h("span", { className: "font-semibold text-slate-900" }, user.ho_ten || user.username),
-          " — ", user.role || "—",
-        ),
-        h("div", { className: "text-xs text-slate-500" },
-          "Năm tài chính: ", h("span", { className: "font-semibold text-slate-900" }, fyLabel),
-          " (", fy, "-04 → ", fy + 1, "-03)",
-        ),
-      ),
+    // Ngân sách còn lại = tổng ngân sách − mua mới YTD
+    const nganSach   = Number(k.ngan_sach_ca_nam || 0);
+    const nsConLai   = nganSach - Number(k.mua_moi_ytd || 0);
+    const nsPct      = nganSach ? Math.round((nsConLai / nganSach) * 100) : 0;
 
+    return h("div", { className: "p-4 md:p-6 space-y-6" },
       // KPI row
       h("div", { className: "grid grid-cols-2 md:grid-cols-5 gap-3" },
         h(Kpi, { label: "Ngân sách " + fyLabel, value: fmtShort(k.ngan_sach_ca_nam), sub: "tất cả nhóm", accent: true }),
         h(Kpi, { label: "Mua mới YTD",  value: fmtShort(k.mua_moi_ytd), sub: "trừ vào ngân sách" }),
-        h(Kpi, { label: "Giá trị còn lại", value: fmtShort(k.tong_gia_tri_con_lai), sub: "sau khấu hao" }),
+        h(Kpi, { label: "Ngân sách còn lại", value: fmtShort(nsConLai), sub: nsPct + "% tổng ngân sách" }),
         h(Kpi, { label: "Huỷ YTD", value: fmtShort(k.huy_ytd), sub: "gồm cả mất" }),
         h(Kpi, { label: "Số tài sản", value: fmtInt(k.so_tai_san), sub: fmtInt(k.so_luong_tong) + " đơn vị" }),
       ),

@@ -372,7 +372,7 @@ async function handleAction(
           .gte("ngay", fyStart).lt("ngay", fyEnd),
         admin.schema("app_ccdc").from("giao_dich")
           .select("id, ngay, loai, ma_bravo, so_luong, thanh_tien, ghi_chu")
-          .order("id", { ascending: false }).limit(10),
+          .order("ngay", { ascending: false }).order("id", { ascending: false }).limit(10),
         admin.schema("app_ccdc").from("v_budget_canh_bao").select("*").eq("fy", fy),
         admin.schema("app_ccdc").from("v_gia_tri_con_lai").select("gia_tri_con_lai"),
       ]);
