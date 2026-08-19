@@ -17,7 +17,8 @@
     return d.getMonth() + 1 >= 4 ? d.getFullYear() : d.getFullYear() - 1;
   })();
 
-  function NganSachScreen() {
+  function NganSachScreen({ user }) {
+    const canWrite = user?.permission?.canWrite;
     const [rows, setRows]       = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError]     = useState("");
@@ -76,7 +77,7 @@
         h("h1", { className: "text-lg font-bold text-slate-900" }, "Ngân sách"),
         h("span", { className: "text-xs text-slate-500" },
           loading ? "đang tải…" : `${rows.length} dòng · FY hiện tại: FY${String(FY_CURRENT).slice(-2)}`),
-        h("button", {
+        canWrite && h("button", {
           onClick: startAdd, disabled: !!editing,
           className: "ml-auto px-3 py-1.5 text-xs font-semibold rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40",
         }, "+ Thêm ngân sách"),
@@ -88,7 +89,7 @@
         h("div", { className: "overflow-x-auto" },
           h("table", { className: "w-full text-sm" },
             h("thead", { className: "bg-slate-50 border-b border-slate-200" },
-              h("tr", null, ["Năm tài chính", "Nhóm sản phẩm", "BU", "Giá trị budget (₫)", ""].map((c, i) =>
+              h("tr", null, ["Năm tài chính", "Nhóm sản phẩm", "BU", "Giá trị budget (₫)"].concat(canWrite ? [""] : []).map((c, i) =>
                 h("th", { key: i, className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide " +
                   (c === "Giá trị budget (₫)" ? "text-right" : "") }, c)))),
             h("tbody", null,
@@ -156,7 +157,7 @@
                           h("td", { className: "px-3 py-2 text-slate-700" }, r.nhom_san_pham || h("span", { className: "italic text-slate-400" }, "(tất cả)")),
                           h("td", { className: "px-3 py-2 text-slate-700" }, r.bo_phan || h("span", { className: "italic text-slate-400" }, "(tất cả BU)")),
                           h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold" }, fmtMoney(r.gia_tri_budget) + " ₫"),
-                          h("td", { className: "px-3 py-2 whitespace-nowrap" },
+                          canWrite && h("td", { className: "px-3 py-2 whitespace-nowrap" },
                             h("button", { onClick: () => startEdit(r), disabled: !!editing,
                               className: "text-xs text-blue-600 hover:underline mr-3 disabled:opacity-40" }, "Sửa"),
                             h("button", { onClick: () => del(r), disabled: !!editing,

@@ -68,6 +68,8 @@
       try {
         const res = await api("login", { username, password: pw });
         if (!res.token) throw new Error("Response thiếu token");
+        setToken(res.token, remember);
+        const whoami = await api("whoami");
         const u = {
           username: res.username || username,
           ho_ten: res.ho_ten || res.username || username,
@@ -75,8 +77,8 @@
           scope: res.scope ?? res.mien ?? "",
           bu: res.bu ?? "",
           mien: res.mien ?? "",
+          permission: (whoami && whoami.permission) || {},
         };
-        setToken(res.token, remember);
         setUser(u, remember);
         onAuth(u);
       } catch (err) { setError(msgOf(err.message)); }

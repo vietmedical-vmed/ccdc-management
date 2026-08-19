@@ -65,6 +65,38 @@ async function verifyToken(token: string, secret: string): Promise<Session | nul
   } catch { return null; }
 }
 
+// ─── Permission ──────────────────────────────────────────────────────────
+const MIEN_NORM: Record<string, string> = {
+  MB: "Miền Bắc", MN: "Miền Nam", MT: "Miền Trung",
+  "Miền Bắc": "Miền Bắc", "Miền Nam": "Miền Nam", "Miền Trung": "Miền Trung",
+};
+
+type Permission = {
+  canWrite: boolean;
+  filterMien: string | null;
+  filterNhomSP: string[] | null;
+};
+
+function getPermission(session: Session): Permission {
+  const role = (session.role || "").toLowerCase();
+  switch (role) {
+    case "admin":   return { canWrite: true,  filterMien: null, filterNhomSP: null };
+    case "manager": return { canWrite: false, filterMien: null, filterNhomSP: null };
+    case "pm": {
+      const scopes = (session.scope || "").split(",").map(s => s.trim()).filter(Boolean);
+      return { canWrite: false, filterMien: null, filterNhomSP: scopes };
+    }
+    case "am": {
+      const m = MIEN_NORM[session.mien] ?? session.mien ?? null;
+      return { canWrite: false, filterMien: m, filterNhomSP: null };
+    }
+    default: {
+      const m = MIEN_NORM[session.mien] ?? session.mien ?? null;
+      return { canWrite: false, filterMien: m, filterNhomSP: null };
+    }
+  }
+}
+
 // ─── Utils ───────────────────────────────────────────────────────────────
 // Escape ký tự phá vỡ cú pháp .or() của PostgREST khi ghép chuỗi search.
 function sanitizeSearch(s: string): string {
@@ -78,9 +110,11 @@ async function handleAction(
   session: Session,
   admin: SupabaseClient,
 ) {
+  const perm = getPermission(session);
+
   switch (action) {
     case "whoami":
-      return { ok: true, user: session };
+      return { ok: true, user: session, permission: perm };
 
     // ── Danh mục CCDC/THIẾT BỊ ──────────────────────────────────────────
     // params: { search?, phan_loai?: string[], page?=1, pageSize?=50 }
@@ -100,6 +134,9 @@ async function handleAction(
         .select("ma_bravo, ten_vat_tu, ma_ncc, bu, nhom_san_pham, san_pham, phan_loai",
                 { count: "exact" })
         .in("phan_loai", filterPL);
+
+      if (perm.filterNhomSP?.length)
+        q = q.in("nhom_san_pham", perm.filterNhomSP);
 
       if (search) {
         const s = search.replace(/"/g, "");
@@ -157,6 +194,7 @@ async function handleAction(
                 { count: "exact" })
         .eq("trang_thai_hd", "Active");
 
+      if (perm.filterMien) payload.mien = perm.filterMien;
       if (payload.mien)        q = q.eq("mien", payload.mien);
       if (payload.loai_vi_tri) q = q.eq("loai_vi_tri", payload.loai_vi_tri);
       const search = sanitizeSearch(payload.search ?? "");
@@ -189,6 +227,8 @@ async function handleAction(
       let filtered = enriched;
       if (payload.phan_loai)
         filtered = filtered.filter((r: any) => r.phan_loai === payload.phan_loai);
+      if (perm.filterNhomSP?.length)
+        filtered = filtered.filter((r: any) => perm.filterNhomSP!.includes(r.nhom_san_pham));
       if (payload.nhom_san_pham)
         filtered = filtered.filter((r: any) => r.nhom_san_pham === payload.nhom_san_pham);
 
@@ -201,6 +241,7 @@ async function handleAction(
         .select("ma_bravo, so_luong, nguyen_gia, tinh_trang")
         .eq("trang_thai_hd", "Active");
 
+      if (perm.filterMien) payload.mien = perm.filterMien;
       if (payload.mien)        q = q.eq("mien", payload.mien);
       if (payload.loai_vi_tri) q = q.eq("loai_vi_tri", payload.loai_vi_tri);
       const search = sanitizeSearch(payload.search ?? "");
@@ -238,6 +279,8 @@ async function handleAction(
       let baseForOptions = enriched;
       if (payload.phan_loai)
         baseForOptions = baseForOptions.filter((r: any) => r.phan_loai === payload.phan_loai);
+      if (perm.filterNhomSP?.length)
+        baseForOptions = baseForOptions.filter((r: any) => perm.filterNhomSP!.includes(r.nhom_san_pham));
       const nhom_sp_options = [...new Set(
         baseForOptions.map((r: any) => r.nhom_san_pham).filter(Boolean)
       )].sort();
@@ -285,13 +328,33 @@ async function handleAction(
       const rows = data ?? [];
 
       const maList = [...new Set(rows.map((r: any) => r.ma_bravo).filter(Boolean))];
-      let nameMap = new Map<string, string>();
+      let dmMap2 = new Map<string, { ten: string; nsp: string }>();
       if (maList.length) {
         const dmRes = await admin.schema("shared").from("dm_vat_tu")
-          .select("ma_bravo, ten_vat_tu").in("ma_bravo", maList);
-        for (const d of (dmRes.data ?? [])) nameMap.set(d.ma_bravo, d.ten_vat_tu);
+          .select("ma_bravo, ten_vat_tu, nhom_san_pham").in("ma_bravo", maList);
+        for (const d of (dmRes.data ?? []))
+          dmMap2.set(d.ma_bravo, { ten: d.ten_vat_tu, nsp: d.nhom_san_pham });
       }
-      const enriched = rows.map((r: any) => ({ ...r, ten_vat_tu: nameMap.get(r.ma_bravo) ?? null }));
+      let enriched = rows.map((r: any) => ({
+        ...r,
+        ten_vat_tu: dmMap2.get(r.ma_bravo)?.ten ?? null,
+      }));
+
+      if (perm.filterNhomSP?.length)
+        enriched = enriched.filter((r: any) =>
+          perm.filterNhomSP!.includes(dmMap2.get(r.ma_bravo)?.nsp || ""));
+
+      if (perm.filterMien) {
+        const tsIds = [...new Set(enriched.map((r: any) => r.tai_san_id).filter(Boolean))];
+        if (tsIds.length) {
+          const tsRes = await admin.schema("app_ccdc").from("tai_san")
+            .select("id, mien").in("id", tsIds);
+          const mienSet = new Set(
+            (tsRes.data ?? []).filter((t: any) => t.mien === perm.filterMien).map((t: any) => t.id));
+          enriched = enriched.filter((r: any) => mienSet.has(r.tai_san_id));
+        }
+      }
+
       return { ok: true, rows: enriched, total: count ?? enriched.length, page, pageSize };
     }
 
@@ -310,20 +373,26 @@ async function handleAction(
         if (rows.length < 1000) break;
         start += 1000;
       }
-      const nsp = [...new Set(all.map((r: any) => r.nhom_san_pham).filter(Boolean))].sort();
+      let nsp = [...new Set(all.map((r: any) => r.nhom_san_pham).filter(Boolean))].sort();
+      if (perm.filterNhomSP?.length)
+        nsp = nsp.filter(n => perm.filterNhomSP!.includes(n));
       const bu  = [...new Set(all.map((r: any) => r.bu).filter(Boolean))].sort();
       return { ok: true, nhom_san_pham: nsp, bu };
     }
 
     case "list_ngan_sach": {
-      const { data, error } = await admin.schema("app_ccdc").from("ngan_sach")
+      let qNS = admin.schema("app_ccdc").from("ngan_sach")
         .select("*").order("nam_tai_chinh", { ascending: false })
         .order("nhom_san_pham", { nullsFirst: true }).order("bo_phan", { nullsFirst: true });
+      if (perm.filterNhomSP?.length)
+        qNS = qNS.in("nhom_san_pham", perm.filterNhomSP);
+      const { data, error } = await qNS;
       if (error) throw new Error(error.message);
       return { ok: true, rows: data ?? [] };
     }
 
     case "upsert_ngan_sach": {
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
       const { id, nam_tai_chinh, nhom_san_pham, bo_phan, gia_tri_budget } = payload;
       if (!nam_tai_chinh) return { ok: false, error: "missing_nam_tai_chinh" };
       if (gia_tri_budget == null || Number(gia_tri_budget) < 0) return { ok: false, error: "invalid_budget" };
@@ -342,6 +411,7 @@ async function handleAction(
     }
 
     case "delete_ngan_sach": {
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
       const { id } = payload;
       if (!id) return { ok: false, error: "missing_id" };
       const { error } = await admin.schema("app_ccdc").from("ngan_sach").delete().eq("id", id);
@@ -359,21 +429,34 @@ async function handleAction(
       const fyStart = `${fy}-04-01`;
       const fyEnd   = `${fy + 1}-04-01`;          // exclusive
 
+      // ── Build queries with permission filters ──
+      let dmQ = admin.schema("shared").from("dm_vat_tu")
+        .select("phan_loai", { count: "exact", head: false })
+        .in("phan_loai", ["CCDC", "THIẾT BỊ"]);
+      if (perm.filterNhomSP?.length)
+        dmQ = dmQ.in("nhom_san_pham", perm.filterNhomSP);
+
+      let tsQ = admin.schema("app_ccdc").from("tai_san")
+        .select("id, ma_bravo, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
+        .eq("trang_thai_hd", "Active");
+      if (perm.filterMien) tsQ = tsQ.eq("mien", perm.filterMien);
+
+      let budgetQ = admin.schema("app_ccdc").from("v_budget_canh_bao")
+        .select("*").eq("fy", fy);
+      if (perm.filterNhomSP?.length)
+        budgetQ = budgetQ.in("nhom_san_pham", perm.filterNhomSP);
+
       const [dmCnt, tsRes, gdFyRes, recentRes, budgetRes, conLaiRes] = await Promise.all([
-        admin.schema("shared").from("dm_vat_tu")
-          .select("phan_loai", { count: "exact", head: false })
-          .in("phan_loai", ["CCDC", "THIẾT BỊ"]),
-        admin.schema("app_ccdc").from("tai_san")
-          .select("id, ma_bravo, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
-          .eq("trang_thai_hd", "Active"),
+        dmQ,
+        tsQ,
         admin.schema("app_ccdc").from("giao_dich")
-          .select("ngay, loai, thanh_tien, so_luong")
+          .select("ngay, loai, thanh_tien, so_luong, ma_bravo, tai_san_id")
           .in("loai", ["nhap_moi", "huy"])
           .gte("ngay", fyStart).lt("ngay", fyEnd),
         admin.schema("app_ccdc").from("giao_dich")
-          .select("id, ngay, loai, ma_bravo, so_luong, thanh_tien, ghi_chu")
-          .order("ngay", { ascending: false }).order("id", { ascending: false }).limit(10),
-        admin.schema("app_ccdc").from("v_budget_canh_bao").select("*").eq("fy", fy),
+          .select("id, ngay, loai, ma_bravo, tai_san_id, so_luong, thanh_tien, ghi_chu")
+          .order("ngay", { ascending: false }).order("id", { ascending: false }).limit(30),
+        budgetQ,
         admin.schema("app_ccdc").from("v_gia_tri_con_lai").select("gia_tri_con_lai"),
       ]);
 
@@ -381,21 +464,42 @@ async function handleAction(
       const cntByPl: Record<string, number> = { CCDC: 0, "THIẾT BỊ": 0 };
       for (const d of (dmCnt.data ?? [])) if (d.phan_loai in cntByPl) cntByPl[d.phan_loai]++;
 
-      // KPI tai_san
-      const ts = tsRes.data ?? [];
+      // KPI tai_san — enrich with dm_vat_tu early (needed for PM filter)
+      let ts = tsRes.data ?? [];
+      const tsMaList = [...new Set(ts.map((r: any) => r.ma_bravo).filter(Boolean))];
+      const plMap = new Map<string, string>();
+      const nspMap = new Map<string, string>();
+      if (tsMaList.length) {
+        const plRes = await admin.schema("shared").from("dm_vat_tu")
+          .select("ma_bravo, phan_loai, nhom_san_pham").in("ma_bravo", tsMaList);
+        for (const d of (plRes.data ?? [])) {
+          plMap.set(d.ma_bravo, d.phan_loai);
+          nspMap.set(d.ma_bravo, d.nhom_san_pham);
+        }
+      }
+      if (perm.filterNhomSP?.length)
+        ts = ts.filter((r: any) => perm.filterNhomSP!.includes(nspMap.get(r.ma_bravo) || ""));
+
       const tong_nguyen_gia = ts.reduce((s: number, r: any) =>
         s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
       const so_tai_san = ts.length;
       const so_luong_tong = ts.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
 
-      // KPI YTD
-      const gdFy = gdFyRes.data ?? [];
+      // KPI YTD — post-filter giao_dich for PM/AM
+      let gdFy = gdFyRes.data ?? [];
+      if (perm.filterNhomSP?.length)
+        gdFy = gdFy.filter((r: any) => perm.filterNhomSP!.includes(nspMap.get(r.ma_bravo) || ""));
+      if (perm.filterMien) {
+        const tsIdSet = new Set(ts.map((r: any) => r.id));
+        gdFy = gdFy.filter((r: any) => tsIdSet.has(r.tai_san_id));
+      }
+
       const mua_moi_ytd = gdFy.filter((r: any) => r.loai === "nhap_moi")
         .reduce((s: number, r: any) => s + Number(r.thanh_tien ?? 0), 0);
       const huy_ytd = gdFy.filter((r: any) => r.loai === "huy")
         .reduce((s: number, r: any) => s + Number(r.thanh_tien ?? 0), 0);
 
-      // KPI giá trị còn lại (view)
+      // KPI giá trị còn lại (view — cannot filter by scope, show global)
       const tong_gia_tri_con_lai = (conLaiRes.data ?? [])
         .reduce((s: number, r: any) => s + Number(r.gia_tri_con_lai ?? 0), 0);
 
@@ -418,15 +522,6 @@ async function handleAction(
         const yy = mm >= 4 ? fy : fy + 1;
         const k = `${yy}-${String(mm).padStart(2, "0")}`;
         chart_theo_ky.push({ ky: k, ...(chartMap[k] ?? { nhap_moi: 0, huy: 0 }) });
-      }
-
-      // phan_loai (CCDC / THIẾT BỊ) theo ma_bravo để tách SL CCDC vs SL TB
-      const tsMaList = [...new Set(ts.map((r: any) => r.ma_bravo).filter(Boolean))];
-      const plMap = new Map<string, string>();
-      if (tsMaList.length) {
-        const plRes = await admin.schema("shared").from("dm_vat_tu")
-          .select("ma_bravo, phan_loai").in("ma_bravo", tsMaList);
-        for (const d of (plRes.data ?? [])) plMap.set(d.ma_bravo, d.phan_loai);
       }
 
       // Tồn theo miền → loại vị trí → PIC (cây 3 cấp)
@@ -456,8 +551,16 @@ async function handleAction(
       const bySl = (a: any, b: any) => b.sl - a.sl;
       const pickAgg = (x: TonAgg) => ({ sl: x.sl, sl_ccdc: x.sl_ccdc, sl_tb: x.sl_tb, nguyen_gia: x.nguyen_gia });
 
-      // 10 GD gần nhất + enrich tên
-      const recent = recentRes.data ?? [];
+      // GD gần nhất + enrich tên + scope filter
+      let recent = recentRes.data ?? [];
+      if (perm.filterNhomSP?.length)
+        recent = recent.filter((r: any) => perm.filterNhomSP!.includes(nspMap.get(r.ma_bravo) || ""));
+      if (perm.filterMien) {
+        const tsIdSet2 = new Set(ts.map((r: any) => r.id));
+        recent = recent.filter((r: any) => tsIdSet2.has(r.tai_san_id));
+      }
+      recent = recent.slice(0, 10);
+
       const maList = [...new Set(recent.map((r: any) => r.ma_bravo).filter(Boolean))];
       let nameMap = new Map<string, string>();
       if (maList.length) {
@@ -493,8 +596,7 @@ async function handleAction(
 
     // ── Admin: sửa tài sản ─────────────────────────────────────────────
     case "update_tai_san": {
-      if (session.role !== "admin")
-        return { ok: false, error: "forbidden_not_admin" };
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
       const { id, ...fields } = payload ?? {};
       if (!id) return { ok: false, error: "missing_id" };
       const allow = ["serial", "vi_tri", "loai_vi_tri", "mien", "pic", "pic_id",
@@ -513,8 +615,7 @@ async function handleAction(
 
     // ── Admin: xoá tài sản (hard delete, cẩn thận!) ────────────────────
     case "delete_tai_san": {
-      if (session.role !== "admin")
-        return { ok: false, error: "forbidden_not_admin" };
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
       const { id } = payload ?? {};
       if (!id) return { ok: false, error: "missing_id" };
       // Kiểm tra: có giao_dich nào trỏ tới không? Nếu có, block.
@@ -532,6 +633,7 @@ async function handleAction(
     // Logic split cho CCDC (so_luong > 1, thao tác 1 phần) → tách row.
     // TB (serial) luôn full operation (so_luong=1).
     case "create_giao_dich": {
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
       const p = payload ?? {};
       const loai = p.loai;
       if (!["nhap_moi", "huy", "mat", "dieu_chuyen"].includes(loai))

@@ -26,6 +26,13 @@
     const path = R.useRoute();
     const Screen = R.get(path);
     const subtitle = user.ho_ten || user.username || "—";
+    const ROLE_BADGE = {
+      admin:   { label: "Admin",   cls: "bg-amber-50 text-amber-700 border-amber-200" },
+      manager: { label: "Manager", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+      pm:      { label: "PM",      cls: "bg-violet-50 text-violet-700 border-violet-200" },
+      am:      { label: "AM",      cls: "bg-teal-50 text-teal-700 border-teal-200" },
+    };
+    const badge = ROLE_BADGE[user.role];
 
     return h("div", { className: "min-h-screen bg-slate-50" },
       h("header", { className: "bg-white border-b border-slate-200" },
@@ -38,7 +45,10 @@
               }, initials(user)),
               h("div", { className: "leading-tight" },
                 h("div", { className: "font-bold text-slate-900 text-base md:text-lg" }, "QUẢN LÝ CCDC & THIẾT BỊ"),
-                h("div", { className: "text-xs text-slate-500 mt-0.5" }, subtitle),
+                h("div", { className: "flex items-center gap-2 mt-0.5" },
+                  h("span", { className: "text-xs text-slate-500" }, subtitle),
+                  badge && h("span", { className: "px-1.5 py-0.5 rounded text-[10px] font-semibold border " + badge.cls }, badge.label),
+                ),
               ),
             ),
             h("div", { className: "flex flex-col items-end gap-2" },
@@ -97,6 +107,7 @@
             scope: res.user.scope || "",
             bu: res.user.bu || "",
             mien: res.user.mien || "",
+            permission: res.permission || {},
           });
         } else {
           clearToken();

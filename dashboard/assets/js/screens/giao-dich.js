@@ -495,7 +495,8 @@
   // ────────────────────────────────────────────────────────────────
   // MÀN GIAO DỊCH
   // ────────────────────────────────────────────────────────────────
-  function GiaoDichScreen() {
+  function GiaoDichScreen({ user }) {
+    const canWrite = user?.permission?.canWrite;
     const [rows, setRows]       = useState([]);
     const [total, setTotal]     = useState(0);
     const [page, setPage]       = useState(1);
@@ -538,7 +539,7 @@
         h("h1", { className: "text-lg font-bold text-slate-900" }, "Giao dịch"),
         h("span", { className: "text-xs text-slate-500" },
           loading ? "đang tải…" : `${fmtInt(total)} dòng · thành tiền trang này ${fmtMoney(tongTT)}₫`),
-        h("button", {
+        canWrite && h("button", {
           onClick: () => setModalOpen(true),
           className: "ml-auto px-3 py-1.5 text-xs font-semibold rounded bg-blue-500 text-white hover:bg-blue-600",
         }, "+ Nhập giao dịch"),

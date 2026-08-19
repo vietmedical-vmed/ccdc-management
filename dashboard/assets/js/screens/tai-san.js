@@ -163,12 +163,15 @@
   // MÀN TÀI SẢN
   // ────────────────────────────────────────────────────────────────
   function TaiSanScreen({ user }) {
-    const isAdmin = user && user.role === "admin";
+    const canWrite = user?.permission?.canWrite;
+    const isAdmin = canWrite;
+    const permMien = user?.permission?.filterMien || null;
+    const permNhomSP = user?.permission?.filterNhomSP || null;
     const [rows, setRows]       = useState([]);
     const [total, setTotal]     = useState(0);
     const [page, setPage]       = useState(1);
     const [plKey, setPlKey]     = useState("all");
-    const [mien, setMien]       = useState("");
+    const [mien, setMien]       = useState(permMien || "");
     const [lvt, setLvt]         = useState("");
     const [nhomSp, setNhomSp]   = useState("");
     const [search, setSearch]   = useState("");
@@ -294,10 +297,14 @@
             className: "px-3 py-1 text-xs font-semibold rounded " +
               (plKey === opt.key ? "bg-blue-500 text-white" : "text-slate-600 hover:bg-slate-100"),
           }, opt.label))),
-        h("select", { className: sel, value: nhomSp, onChange: e => setNhomSp(e.target.value) },
+        h("select", { className: sel + (permNhomSP ? " opacity-60" : ""), value: nhomSp,
+          disabled: !!permNhomSP && permNhomSP.length === 1,
+          onChange: e => setNhomSp(e.target.value) },
           h("option", { value: "" }, "-- Nhóm SP --"),
           nhomSpOptions.map(n => h("option", { key: n, value: n }, n))),
-        h("select", { className: sel, value: mien, onChange: e => setMien(e.target.value) },
+        h("select", { className: sel + (permMien ? " opacity-60" : ""), value: mien,
+          disabled: !!permMien,
+          onChange: e => setMien(e.target.value) },
           MIEN_OPTIONS.map(m => h("option", { key: m, value: m }, m || "-- Miền --"))),
         h("select", { className: sel, value: lvt, onChange: e => setLvt(e.target.value) },
           LVT_OPTIONS.map(m => h("option", { key: m, value: m }, m || "-- Loại vị trí --"))),
