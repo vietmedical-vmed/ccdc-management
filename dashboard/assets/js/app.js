@@ -52,7 +52,7 @@
               ),
             ),
             h("div", { className: "flex flex-col items-end gap-2" },
-              h("div", { className: "text-[9px] text-slate-400 italic hidden md:block" },
+              h("div", { className: "text-[9px] text-slate-400 italic text-right" },
                 "Designed and developed by ",
                 h("span", { className: "font-semibold text-slate-500 not-italic" }, "Do Hoang Giang"),
               ),
