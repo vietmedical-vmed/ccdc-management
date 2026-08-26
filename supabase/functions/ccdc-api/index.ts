@@ -427,6 +427,8 @@ async function handleAction(
       let qNS = admin.schema("app_ccdc").from("v_budget_canh_bao")
         .select("*").order("fy", { ascending: false })
         .order("nhom_san_pham", { nullsFirst: true })
+        .order("mien", { nullsFirst: true })
+        .order("ma_ncc", { nullsFirst: true })
         .order("ma_bravo");
       if (perm.filterNhomSP?.length)
         qNS = qNS.in("nhom_san_pham", perm.filterNhomSP);

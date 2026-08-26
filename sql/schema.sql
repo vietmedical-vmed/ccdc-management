@@ -255,13 +255,13 @@ create or replace view app_ccdc.v_budget_canh_bao as
   ),
   dm as (
     select distinct on (ma_bravo)
-           ma_bravo, nhom_san_pham, ma_ncc, ten_vat_tu
+           ma_bravo, nhom_san_pham, ma_ncc, ten_vat_tu, don_gia_mua
     from shared.dm_vat_tu
     where ma_bravo is not null and ma_bravo <> 'Chưa có'
     order by ma_bravo
   )
   select ns.id, ns.nam_tai_chinh as fy, ns.ma_bravo, ns.mien,
-         dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu,
+         dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu, dm.don_gia_mua,
          ns.so_luong                              as sl_dang_ky,
          coalesce(sum(d.sl_da_dung), 0)::int      as sl_da_dung,
          coalesce(sum(d.da_chi), 0)               as da_chi,
@@ -278,7 +278,7 @@ create or replace view app_ccdc.v_budget_canh_bao as
                    and d.fy = ns.nam_tai_chinh
                    and (ns.mien is null or d.mien = ns.mien)
   group by ns.id, ns.nam_tai_chinh, ns.ma_bravo, ns.mien,
-           dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu, ns.so_luong;
+           dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu, dm.don_gia_mua, ns.so_luong;
 
 
 -- ====================================================================

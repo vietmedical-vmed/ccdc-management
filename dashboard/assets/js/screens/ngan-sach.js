@@ -524,6 +524,12 @@
         const k = r.nhom_san_pham || "(chưa phân loại)";
         (map[k] ??= []).push(r);
       }
+      for (const items of Object.values(map)) {
+        items.sort((a, b) =>
+          (a.mien || "").localeCompare(b.mien || "")
+          || (a.ma_ncc || "").localeCompare(b.ma_ncc || "")
+          || (a.ma_bravo || "").localeCompare(b.ma_bravo || ""));
+      }
       return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
     }, [filtered]);
 
@@ -669,36 +675,43 @@
                 canWrite && h("th", { className: "px-3 py-2 w-8" },
                   h("input", { type: "checkbox", checked: allChecked, onChange: toggleCheckAll }),
                 ),
-                ["Mã Bravo", "Tên TSCĐ/CCDC", "Nhóm SP", "Mã NCC", "Miền", "SL đăng ký", "Đã dùng", ""].map((c, i) =>
+                ["Miền", "Mã NCC", "Mã Bravo", "Tên hàng hóa", "SL đăng ký", ""].map((c, i) =>
                   h("th", {
                     key: i,
                     className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide" +
-                      (["SL đăng ký", "Đã dùng"].includes(c) ? " text-right" : ""),
+                      (c === "SL đăng ký" ? " text-right" : ""),
                   }, c)),
               ),
             ),
             h("tbody", null,
               filtered.length === 0 && !loading
-                ? h("tr", null, h("td", { colSpan: canWrite ? 9 : 8, className: "px-3 py-8 text-center text-sm text-slate-400" },
+                ? h("tr", null, h("td", { colSpan: canWrite ? 7 : 6, className: "px-3 py-8 text-center text-sm text-slate-400" },
                     "Chưa có đăng ký ngân sách — bấm '+ Thêm đăng ký'"))
                 : grouped.map(([nhom, items]) => [
                     h("tr", { key: "g-" + nhom, className: "bg-slate-50/70" },
-                      h("td", { colSpan: canWrite ? 9 : 8, className: "px-3 py-1.5 text-xs font-bold text-slate-700 uppercase tracking-wide" },
+                      h("td", { colSpan: canWrite ? 7 : 6, className: "px-3 py-2 text-xs font-bold text-slate-700 uppercase tracking-wide" },
                         nhom,
-                        h("span", { className: "ml-2 font-normal normal-case text-slate-400" },
-                          items.length + " mã · " +
+                        h("span", { className: "ml-3 font-normal normal-case text-slate-500" },
                           items.reduce((s, r) => s + Number(r.sl_dang_ky || 0), 0) + " bộ"),
+                        h("span", { className: "ml-2 font-normal normal-case text-slate-400" }, "·"),
+                        h("span", { className: "ml-2 font-normal normal-case text-slate-500" },
+                          (() => {
+                            const tv = items.reduce((s, r) => {
+                              const p = r.don_gia_mua != null ? Number(r.don_gia_mua) : null;
+                              return p != null ? s + p * Number(r.sl_dang_ky || 0) : s;
+                            }, 0);
+                            return tv ? tv.toLocaleString("vi-VN") + " ₫" : "—";
+                          })()),
                       ),
                     ),
                     ...items.map(r =>
                       editing && editing.id === r.id
                         ? h("tr", { key: r.id, className: "bg-blue-50 border-b border-slate-100" },
                             canWrite && h("td", { className: cellCls }),
+                            h("td", { className: cellCls + " text-xs" }, r.mien || "(tất cả)"),
+                            h("td", { className: cellCls + " font-mono text-xs" }, r.ma_ncc || "—"),
                             h("td", { className: cellCls + " font-mono text-xs font-semibold" }, r.ma_bravo),
                             h("td", { className: cellCls + " text-slate-500 text-xs" }, r.ten_vat_tu || "—"),
-                            h("td", { className: cellCls + " text-xs" }, r.nhom_san_pham || "—"),
-                            h("td", { className: cellCls + " text-xs" }, r.ma_ncc || "—"),
-                            h("td", { className: cellCls + " text-xs" }, r.mien || "(tất cả)"),
                             h("td", { className: cellCls + " text-right" },
                               h("input", {
                                 type: "number", min: 1, className: cellInput,
@@ -706,7 +719,6 @@
                                 onChange: e => setEditing({ ...editing, so_luong: Number(e.target.value) || 0 }),
                               }),
                             ),
-                            h("td", { className: cellCls + " text-right tabular-nums" }, r.sl_da_dung || 0),
                             h("td", { className: cellCls + " whitespace-nowrap" },
                               h("button", { onClick: saveEdit, className: "text-xs font-semibold text-blue-600 hover:underline mr-3" }, "Lưu"),
                               h("button", { onClick: cancelEdit, className: "text-xs text-slate-500 hover:underline" }, "Huỷ"),
@@ -716,16 +728,11 @@
                             canWrite && h("td", { className: cellCls },
                               h("input", { type: "checkbox", checked: checkedIds.has(r.id), onChange: () => toggleCheck(r.id) }),
                             ),
+                            h("td", { className: cellCls + " text-slate-600" }, r.mien || h("span", { className: "italic text-slate-400" }, "(tất cả)")),
+                            h("td", { className: cellCls + " font-mono text-xs text-slate-500" }, r.ma_ncc || "—"),
                             h("td", { className: cellCls + " font-mono text-xs font-semibold text-slate-800" }, r.ma_bravo),
                             h("td", { className: cellCls + " text-slate-700 max-w-xs truncate", title: r.ten_vat_tu }, r.ten_vat_tu || "—"),
-                            h("td", { className: cellCls + " text-slate-600 text-xs" }, r.nhom_san_pham || "—"),
-                            h("td", { className: cellCls + " font-mono text-xs text-slate-500" }, r.ma_ncc || "—"),
-                            h("td", { className: cellCls + " text-slate-600" }, r.mien || h("span", { className: "italic text-slate-400" }, "(tất cả)")),
                             h("td", { className: cellCls + " text-right tabular-nums font-semibold" }, r.sl_dang_ky),
-                            h("td", { className: cellCls + " text-right tabular-nums" },
-                              h("span", { className: "mr-2" }, r.sl_da_dung || 0),
-                              statusBadge(r),
-                            ),
                             canWrite
                               ? h("td", { className: cellCls + " whitespace-nowrap" },
                                   h("button", { onClick: () => startEdit(r), disabled: !!editing,
