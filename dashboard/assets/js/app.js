@@ -123,6 +123,17 @@
 
     const onLogout = () => { clearToken(); setUser(null); window.location.hash = ""; };
 
+    // Mở mới/điều hướng vào trang → luôn về Tổng quan; bấm Reload/F5 → giữ màn đang xem
+    useEffect(() => {
+      try {
+        const nav = performance.getEntriesByType("navigation")[0];
+        const navType = nav ? nav.type : "navigate";
+        if (navType !== "reload" && R.currentPath() !== "/dashboard") {
+          window.location.hash = "/dashboard";
+        }
+      } catch (_) { /* bỏ qua nếu API không hỗ trợ */ }
+    }, []);
+
     // Ẩn boot spinner khi App đã mount
     useEffect(() => {
       const boot = document.getElementById("boot");
