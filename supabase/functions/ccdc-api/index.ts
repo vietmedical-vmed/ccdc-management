@@ -358,14 +358,20 @@ async function handleAction(
       return { ok: true, rows: enriched, total: count ?? enriched.length, page, pageSize };
     }
 
-    // ── Ngân sách (CRUD) ────────────────────────────────────────────────
-    // Options cho dropdown khi nhập ngân sách
+    // ── Ngân sách (CRUD) — đăng ký theo mã Bravo + SL ───────────────────
+
+    // Dropdown options: BU, nhóm SP (filtered by BU), miền
     case "ngan_sach_options": {
+      const filterBU: string | null = payload.bu || null;
       const all: any[] = [];
       let start = 0;
       while (true) {
-        const { data, error } = await admin.schema("shared").from("dm_vat_tu")
-          .select("nhom_san_pham, bu").range(start, start + 999);
+        let q = admin.schema("shared").from("dm_vat_tu")
+          .select("bu, nhom_san_pham")
+          .in("phan_loai", ["CCDC", "THIẾT BỊ"]);
+        if (perm.filterNhomSP?.length)
+          q = q.in("nhom_san_pham", perm.filterNhomSP);
+        const { data, error } = await q.range(start, start + 999);
         if (error) throw new Error(error.message);
         const rows = data ?? [];
         if (!rows.length) break;
@@ -373,17 +379,55 @@ async function handleAction(
         if (rows.length < 1000) break;
         start += 1000;
       }
-      let nsp = [...new Set(all.map((r: any) => r.nhom_san_pham).filter(Boolean))].sort();
+      const bu = [...new Set(all.map((r: any) => r.bu).filter(Boolean))].sort();
+      const pool = filterBU ? all.filter((r: any) => r.bu === filterBU) : all;
+      const nhom_san_pham = [...new Set(pool.map((r: any) => r.nhom_san_pham).filter(Boolean))].sort();
+      const mien = ["Miền Bắc", "Miền Trung", "Miền Nam"];
+      return { ok: true, bu, nhom_san_pham, mien };
+    }
+
+    // Danh sách hàng hóa cho wizard thêm ngân sách (filtered by BU + nhóm SP)
+    case "ngan_sach_items": {
+      const { bu, nhom_san_pham, nam_tai_chinh, mien } = payload;
+      if (!nhom_san_pham) return { ok: false, error: "missing_nhom_san_pham" };
+      let q = admin.schema("shared").from("dm_vat_tu")
+        .select("ma_bravo, ten_vat_tu, ma_ncc, nhom_san_pham, bu, don_gia_mua")
+        .in("phan_loai", ["CCDC", "THIẾT BỊ"])
+        .eq("nhom_san_pham", nhom_san_pham);
+      if (bu) q = q.eq("bu", bu);
       if (perm.filterNhomSP?.length)
-        nsp = nsp.filter(n => perm.filterNhomSP!.includes(n));
-      const bu  = [...new Set(all.map((r: any) => r.bu).filter(Boolean))].sort();
-      return { ok: true, nhom_san_pham: nsp, bu };
+        q = q.in("nhom_san_pham", perm.filterNhomSP);
+      q = q.order("ma_ncc").order("ma_bravo").limit(500);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const items = (data ?? []).filter((r: any) => r.ma_bravo && r.ma_bravo !== "Chưa có");
+
+      const maList = items.map((r: any) => r.ma_bravo);
+      const existingMap = new Map<string, { id: number; so_luong: number }>();
+      if (maList.length && nam_tai_chinh) {
+        let eq = admin.schema("app_ccdc").from("ngan_sach")
+          .select("ma_bravo, so_luong, id")
+          .eq("nam_tai_chinh", Number(nam_tai_chinh))
+          .in("ma_bravo", maList);
+        if (mien) eq = eq.eq("mien", mien);
+        else eq = eq.is("mien", null);
+        const { data: existing } = await eq;
+        for (const r of (existing ?? []))
+          existingMap.set(r.ma_bravo, { id: r.id, so_luong: r.so_luong });
+      }
+      const rows = items.map((r: any) => ({
+        ...r,
+        existing_id: existingMap.get(r.ma_bravo)?.id ?? null,
+        existing_sl: existingMap.get(r.ma_bravo)?.so_luong ?? null,
+      }));
+      return { ok: true, rows };
     }
 
     case "list_ngan_sach": {
-      let qNS = admin.schema("app_ccdc").from("ngan_sach")
-        .select("*").order("nam_tai_chinh", { ascending: false })
-        .order("nhom_san_pham", { nullsFirst: true }).order("bo_phan", { nullsFirst: true });
+      let qNS = admin.schema("app_ccdc").from("v_budget_canh_bao")
+        .select("*").order("fy", { ascending: false })
+        .order("nhom_san_pham", { nullsFirst: true })
+        .order("ma_bravo");
       if (perm.filterNhomSP?.length)
         qNS = qNS.in("nhom_san_pham", perm.filterNhomSP);
       const { data, error } = await qNS;
@@ -391,16 +435,43 @@ async function handleAction(
       return { ok: true, rows: data ?? [] };
     }
 
+    // Lưu batch nhiều mã cùng lúc
+    case "batch_upsert_ngan_sach": {
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
+      const { nam_tai_chinh, mien, items } = payload;
+      if (!nam_tai_chinh) return { ok: false, error: "missing_nam_tai_chinh" };
+      if (!Array.isArray(items) || !items.length) return { ok: false, error: "no_items" };
+      const results: any[] = [];
+      for (const item of items) {
+        if (!item.ma_bravo || !item.so_luong || Number(item.so_luong) <= 0) continue;
+        const row = {
+          nam_tai_chinh: Number(nam_tai_chinh),
+          ma_bravo: String(item.ma_bravo).trim(),
+          mien: mien || null,
+          so_luong: Number(item.so_luong),
+        };
+        const q = item.id
+          ? admin.schema("app_ccdc").from("ngan_sach").update(row).eq("id", item.id).select().single()
+          : admin.schema("app_ccdc").from("ngan_sach").insert(row).select().single();
+        const { data, error } = await q;
+        if (error) results.push({ ma_bravo: item.ma_bravo, error: error.message });
+        else results.push({ ma_bravo: item.ma_bravo, ok: true, id: data.id });
+      }
+      return { ok: true, results };
+    }
+
+    // Sửa 1 dòng ngân sách (inline edit từ bảng chính)
     case "upsert_ngan_sach": {
       if (!perm.canWrite) return { ok: false, error: "forbidden" };
-      const { id, nam_tai_chinh, nhom_san_pham, bo_phan, gia_tri_budget } = payload;
+      const { id, nam_tai_chinh, ma_bravo, mien, so_luong } = payload;
       if (!nam_tai_chinh) return { ok: false, error: "missing_nam_tai_chinh" };
-      if (gia_tri_budget == null || Number(gia_tri_budget) < 0) return { ok: false, error: "invalid_budget" };
+      if (!ma_bravo) return { ok: false, error: "missing_ma_bravo" };
+      if (!so_luong || Number(so_luong) <= 0) return { ok: false, error: "invalid_so_luong" };
       const row = {
         nam_tai_chinh: Number(nam_tai_chinh),
-        nhom_san_pham: nhom_san_pham || null,
-        bo_phan:       bo_phan       || null,
-        gia_tri_budget: Number(gia_tri_budget),
+        ma_bravo:      String(ma_bravo).trim(),
+        mien:          mien || null,
+        so_luong:      Number(so_luong),
       };
       const q = id
         ? admin.schema("app_ccdc").from("ngan_sach").update(row).eq("id", id).select().single()
@@ -412,11 +483,14 @@ async function handleAction(
 
     case "delete_ngan_sach": {
       if (!perm.canWrite) return { ok: false, error: "forbidden" };
-      const { id } = payload;
-      if (!id) return { ok: false, error: "missing_id" };
-      const { error } = await admin.schema("app_ccdc").from("ngan_sach").delete().eq("id", id);
+      const { id, ids } = payload;
+      const toDelete: number[] = Array.isArray(ids) ? ids.map(Number).filter(Boolean)
+        : id ? [Number(id)] : [];
+      if (!toDelete.length) return { ok: false, error: "missing_id" };
+      const { error } = await admin.schema("app_ccdc").from("ngan_sach")
+        .delete().in("id", toDelete);
       if (error) throw new Error(error.message);
-      return { ok: true };
+      return { ok: true, deleted: toDelete.length };
     }
 
     // ── Dashboard summary ───────────────────────────────────────────────
@@ -503,10 +577,29 @@ async function handleAction(
       const tong_gia_tri_con_lai = (conLaiRes.data ?? [])
         .reduce((s: number, r: any) => s + Number(r.gia_tri_con_lai ?? 0), 0);
 
-      // Budget cả năm FY hiện tại
-      const budget = budgetRes.data ?? [];
-      const ngan_sach_ca_nam = budget.reduce((s: number, r: any) =>
-        s + Number(r.gia_tri_budget ?? 0), 0);
+      // Budget cả năm FY hiện tại — aggregate theo nhóm SP cho gauge
+      const budgetRaw = budgetRes.data ?? [];
+      const budgetByNhom: Record<string, { nhom_san_pham: string; sl_dang_ky: number; sl_da_dung: number; da_chi: number }> = {};
+      for (const r of budgetRaw) {
+        const k = r.nhom_san_pham || "(tất cả)";
+        const agg = (budgetByNhom[k] ??= { nhom_san_pham: k, sl_dang_ky: 0, sl_da_dung: 0, da_chi: 0 });
+        agg.sl_dang_ky += Number(r.sl_dang_ky ?? 0);
+        agg.sl_da_dung += Number(r.sl_da_dung ?? 0);
+        agg.da_chi     += Number(r.da_chi ?? 0);
+      }
+      const budget = Object.values(budgetByNhom).map(r => ({
+        ...r,
+        pct: r.sl_dang_ky ? Math.round(r.sl_da_dung / r.sl_dang_ky * 1000) / 10 : 0,
+        trang_thai: !r.sl_dang_ky ? "OK"
+          : r.sl_da_dung > r.sl_dang_ky ? "VUOT"
+          : r.sl_da_dung >= r.sl_dang_ky * 0.8 ? "CANH_BAO" : "OK",
+      }));
+      const ngan_sach_ca_nam = budgetRaw.reduce((s: number, r: any) =>
+        s + Number(r.da_chi ?? 0), 0);
+      const tong_sl_dang_ky = budgetRaw.reduce((s: number, r: any) =>
+        s + Number(r.sl_dang_ky ?? 0), 0);
+      const tong_sl_da_dung = budgetRaw.reduce((s: number, r: any) =>
+        s + Number(r.sl_da_dung ?? 0), 0);
 
       // Chart 12 tháng FY: fill 0 nếu tháng chưa có data
       const chartMap: Record<string, { nhap_moi: number; huy: number }> = {};
@@ -578,6 +671,7 @@ async function handleAction(
           so_tai_san, so_luong_tong,
           tong_nguyen_gia, tong_gia_tri_con_lai,
           mua_moi_ytd, huy_ytd, ngan_sach_ca_nam,
+          tong_sl_dang_ky, tong_sl_da_dung,
         },
         ton_by_mien: Object.entries(tonByMien).map(([mien, M]) => ({
           mien, ...pickAgg(M),

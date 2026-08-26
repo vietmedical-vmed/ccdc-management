@@ -21,8 +21,8 @@
     dieu_chuyen: "bg-amber-50 text-amber-700",
   };
   const budgetStatus = (r) => {
-    if (!r.gia_tri_budget) return "OK";
-    const pct = Number(r.da_chi || 0) / Number(r.gia_tri_budget);
+    if (!r.sl_dang_ky) return "OK";
+    const pct = Number(r.sl_da_dung || 0) / Number(r.sl_dang_ky);
     return pct > 1 ? "VUOT" : pct >= 0.8 ? "CANH_BAO" : "OK";
   };
   const STATUS_COLOR = { OK: "#10b981", CANH_BAO: "#f59e0b", VUOT: "#ef4444" };
@@ -46,9 +46,10 @@
 
   // ─── Gauge (thanh tiến độ budget) ────────────────────────
   function Gauge({ r }) {
-    const budget = Number(r.gia_tri_budget || 0);
+    const dk = Number(r.sl_dang_ky || 0);
+    const dd = Number(r.sl_da_dung || 0);
     const chi = Number(r.da_chi || 0);
-    const pct = budget ? (chi / budget) * 100 : 0;
+    const pct = dk ? (dd / dk) * 100 : 0;
     const s = budgetStatus(r);
     const color = STATUS_COLOR[s];
     const stat = STATUS_TEXT[s];
@@ -56,7 +57,6 @@
       h("div", { className: "flex items-baseline justify-between mb-1.5" },
         h("div", { className: "text-sm font-semibold text-slate-800" },
           r.nhom_san_pham || h("span", { className: "italic text-slate-500" }, "(tất cả nhóm)"),
-          r.bo_phan && h("span", { className: "ml-2 text-xs font-normal text-slate-500" }, "· " + r.bo_phan),
         ),
         h("div", { className: "flex items-center gap-2" },
           h("span", { className: "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold " + stat.cls }, stat.label),
@@ -70,15 +70,15 @@
           className: "absolute inset-y-0 left-0 rounded transition-all",
           style: { width: Math.min(pct, 100) + "%", background: color },
         }),
-        // Tick 80%
         h("div", {
           className: "absolute top-[-3px] bottom-[-3px] w-px bg-slate-400",
           style: { left: "80%" },
         }),
       ),
       h("div", { className: "text-xs text-slate-600 mt-1" },
-        "Đã chi ", h("b", { className: "text-slate-900 tabular-nums" }, vnd(chi)),
-        " / ngân sách ", h("b", { className: "text-slate-900 tabular-nums" }, vnd(budget)), " ₫",
+        "Đã dùng ", h("b", { className: "text-slate-900 tabular-nums" }, fmtInt(dd)),
+        " / đăng ký ", h("b", { className: "text-slate-900 tabular-nums" }, fmtInt(dk)), " bộ",
+        chi > 0 && h("span", { className: "ml-2 text-slate-400" }, "· " + fmtShort(chi) + " ₫"),
       ),
     );
   }
@@ -303,17 +303,18 @@
     const fy      = data.fy;
     const fyLabel = "FY" + String(fy).slice(-2);
 
-    // Ngân sách còn lại = tổng ngân sách − mua mới YTD
-    const nganSach   = Number(k.ngan_sach_ca_nam || 0);
-    const nsConLai   = nganSach - Number(k.mua_moi_ytd || 0);
-    const nsPct      = nganSach ? Math.round((nsConLai / nganSach) * 100) : 0;
+    // Ngân sách SL: đăng ký vs đã dùng
+    const slDK       = Number(k.tong_sl_dang_ky || 0);
+    const slDD       = Number(k.tong_sl_da_dung || 0);
+    const slConLai   = slDK - slDD;
+    const slPct      = slDK ? Math.round((slConLai / slDK) * 100) : 0;
 
     return h("div", { className: "p-4 md:p-6 space-y-6" },
       // KPI row
       h("div", { className: "grid grid-cols-2 md:grid-cols-5 gap-3" },
-        h(Kpi, { label: "Ngân sách " + fyLabel, value: fmtShort(k.ngan_sach_ca_nam), sub: "tất cả nhóm", accent: true }),
-        h(Kpi, { label: "Mua mới YTD",  value: fmtShort(k.mua_moi_ytd), sub: "trừ vào ngân sách" }),
-        h(Kpi, { label: "Ngân sách còn lại", value: fmtShort(nsConLai), sub: nsPct + "% tổng ngân sách" }),
+        h(Kpi, { label: "Đăng ký " + fyLabel, value: fmtInt(slDK) + " bộ", sub: "tất cả nhóm", accent: true }),
+        h(Kpi, { label: "Đã dùng YTD", value: fmtInt(slDD) + " bộ", sub: fmtShort(k.mua_moi_ytd) + " ₫" }),
+        h(Kpi, { label: "Còn lại", value: fmtInt(slConLai) + " bộ", sub: slPct + "% đăng ký" }),
         h(Kpi, { label: "Huỷ YTD", value: fmtShort(k.huy_ytd), sub: "gồm cả mất" }),
         h(Kpi, { label: "Số tài sản", value: fmtInt(k.so_tai_san), sub: fmtInt(k.so_luong_tong) + " đơn vị" }),
       ),
@@ -321,13 +322,13 @@
       // Budget gauges
       h("div", { className: "bg-white border border-slate-200 rounded-lg" },
         h("div", { className: "px-4 py-3 border-b border-slate-200 font-semibold text-sm text-slate-700 flex items-center justify-between" },
-          h("span", null, "Ngân sách mua mới theo nhóm sản phẩm — " + fyLabel),
+          h("span", null, "Ngân sách đăng ký theo nhóm sản phẩm — " + fyLabel),
           h("a", { href: "#/ngan-sach", className: "text-xs text-blue-600 hover:underline font-normal" }, "Cập nhật →"),
         ),
         h("div", { className: "px-4 py-3" },
           budget.length === 0
             ? h("div", { className: "text-center text-sm text-slate-400 py-8" },
-                "Chưa thiết lập ngân sách cho ", fyLabel,
+                "Chưa đăng ký ngân sách cho ", fyLabel,
                 " — vào ", h("a", { href: "#/ngan-sach", className: "text-blue-600 hover:underline" }, "Ngân sách"))
             : budget.map((r, i) => h(Gauge, { key: i, r })),
         ),

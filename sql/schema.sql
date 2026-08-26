@@ -127,15 +127,15 @@ create index if not exists ix_gd_ma_loai_ky on app_ccdc.giao_dich(ma_bravo, loai
 
 
 -- --------------------------------------------------------------------
--- 5. NGÂN SÁCH mua mới (theo năm tài chính × nhóm SP × bộ phận)
+-- 5. NGÂN SÁCH đăng ký đầu năm (theo mã Bravo × miền × FY)
 -- --------------------------------------------------------------------
 create table if not exists app_ccdc.ngan_sach (
   id             bigint generated always as identity primary key,
   nam_tai_chinh  int  not null,                       -- vd 2026 = FY26
-  nhom_san_pham  text,                                -- null = tất cả
-  bo_phan        text,                                -- null = toàn công ty
-  gia_tri_budget numeric not null check (gia_tri_budget >= 0),
-  unique (nam_tai_chinh, nhom_san_pham, bo_phan)
+  ma_bravo       text not null,                       -- FK mềm → shared.dm_vat_tu
+  mien           text,                                -- Miền Bắc/Trung/Nam, null = tất cả
+  so_luong       int  not null check (so_luong > 0),
+  unique (nam_tai_chinh, ma_bravo, mien)
 );
 
 
@@ -244,23 +244,41 @@ create or replace view app_ccdc.v_gia_tri_theo_ky as
   group by ma_bravo, ky, loai;
 
 create or replace view app_ccdc.v_budget_canh_bao as
-  with chi as (
-    select vt.nhom_san_pham, app_ccdc.fn_fy(g.ky) as fy, sum(g.thanh_tien) as da_chi
+  with dung as (
+    select g.ma_bravo, ts.mien, app_ccdc.fn_fy(g.ky) as fy,
+           sum(g.so_luong)   as sl_da_dung,
+           sum(g.thanh_tien) as da_chi
     from app_ccdc.giao_dich g
-    join shared.dm_vat_tu vt on vt.ma_bravo = g.ma_bravo
+    left join app_ccdc.tai_san ts on ts.id = g.tai_san_id
     where g.loai = 'nhap_moi'
-    group by vt.nhom_san_pham, app_ccdc.fn_fy(g.ky)
+    group by g.ma_bravo, ts.mien, app_ccdc.fn_fy(g.ky)
+  ),
+  dm as (
+    select distinct on (ma_bravo)
+           ma_bravo, nhom_san_pham, ma_ncc, ten_vat_tu
+    from shared.dm_vat_tu
+    where ma_bravo is not null and ma_bravo <> 'Chưa có'
+    order by ma_bravo
   )
-  select ns.nam_tai_chinh as fy, ns.nhom_san_pham, ns.bo_phan, ns.gia_tri_budget,
-         coalesce(c.da_chi, 0) as da_chi,
-         round(coalesce(c.da_chi,0) / nullif(ns.gia_tri_budget,0) * 100, 1) as pct,
+  select ns.id, ns.nam_tai_chinh as fy, ns.ma_bravo, ns.mien,
+         dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu,
+         ns.so_luong                              as sl_dang_ky,
+         coalesce(sum(d.sl_da_dung), 0)::int      as sl_da_dung,
+         coalesce(sum(d.da_chi), 0)               as da_chi,
+         round(coalesce(sum(d.sl_da_dung),0)::numeric
+               / nullif(ns.so_luong,0) * 100, 1)  as pct,
          case
-           when coalesce(c.da_chi,0) >  ns.gia_tri_budget       then 'VUOT'
-           when coalesce(c.da_chi,0) >= ns.gia_tri_budget * 0.8 then 'CANH_BAO'
+           when coalesce(sum(d.sl_da_dung),0) >  ns.so_luong       then 'VUOT'
+           when coalesce(sum(d.sl_da_dung),0) >= ns.so_luong * 0.8 then 'CANH_BAO'
            else 'OK'
          end as trang_thai
   from app_ccdc.ngan_sach ns
-  left join chi c on c.nhom_san_pham = ns.nhom_san_pham and c.fy = ns.nam_tai_chinh;
+  left join dm   on dm.ma_bravo = ns.ma_bravo
+  left join dung d on d.ma_bravo = ns.ma_bravo
+                   and d.fy = ns.nam_tai_chinh
+                   and (ns.mien is null or d.mien = ns.mien)
+  group by ns.id, ns.nam_tai_chinh, ns.ma_bravo, ns.mien,
+           dm.nhom_san_pham, dm.ma_ncc, dm.ten_vat_tu, ns.so_luong;
 
 
 -- ====================================================================
