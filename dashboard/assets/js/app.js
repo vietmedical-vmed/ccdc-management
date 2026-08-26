@@ -58,11 +58,11 @@
               h("div", { className: "flex items-center gap-2" },
                 h("button", {
                   onClick: () => window.location.reload(),
-                  className: "flex items-center gap-1.5 text-xs text-slate-600 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-md",
+                  className: "flex items-center gap-1.5 text-xs text-white bg-blue-500 hover:bg-blue-600 px-2.5 py-1.5 rounded-md",
                 }, h("span", null, "⟳"), "Reload"),
                 h("button", {
                   onClick: onLogout,
-                  className: "flex items-center gap-1.5 text-xs text-slate-600 hover:text-red-600 hover:border-red-200 border border-slate-200 px-2.5 py-1.5 rounded-md",
+                  className: "flex items-center gap-1.5 text-xs text-white bg-red-500 hover:bg-red-600 px-2.5 py-1.5 rounded-md",
                 }, h("span", null, "⎋"), "Đăng xuất"),
               ),
             ),
