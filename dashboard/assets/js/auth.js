@@ -101,10 +101,10 @@
           border: "1px solid #dadde1", padding: 24, width: "100%", maxWidth: 360,
         },
       },
-        h("div", {
-          style: { width: 56, height: 56, borderRadius: "50%", background: "#1877f2",
-                   display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", marginBottom: 16 },
-        }, h(LockIcon, { size: 20 })),
+        h("img", {
+          src: "favicon.svg", alt: "VietMedical",
+          style: { width: 56, height: 56, display: "block", margin: "0 auto 16px" },
+        }),
         h("h2", { style: { fontSize: 18, fontWeight: 700, margin: 0 } }, "QUẢN LÝ CCDC & THIẾT BỊ"),
         h("p", { style: { fontSize: 13, color: "#65676b", marginTop: 4, marginBottom: 20 } },
           isChange ? "Đổi mật khẩu" : "Đăng nhập để truy cập"),
