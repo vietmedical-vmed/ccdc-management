@@ -184,7 +184,7 @@ async function handleAction(
     // params: { search?, phan_loai?, nhom_san_pham?, mien?, loai_vi_tri?, page?, pageSize? }
     case "list_tai_san": {
       const page = Math.max(1, Number(payload.page ?? 1));
-      const pageSize = Math.min(200, Math.max(10, Number(payload.pageSize ?? 50)));
+      const pageSize = Math.min(1000, Math.max(10, Number(payload.pageSize ?? 50)));
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
@@ -209,12 +209,12 @@ async function handleAction(
       const rows = data ?? [];
 
       const maList = [...new Set(rows.map((r: any) => r.ma_bravo).filter(Boolean))];
-      let nameMap = new Map<string, { ten: string; phan_loai: string; san_pham: string; nhom_san_pham: string }>();
+      let nameMap = new Map<string, { ten: string; phan_loai: string; san_pham: string; nhom_san_pham: string; ma_ncc: string }>();
       if (maList.length) {
         const dmRes = await admin.schema("shared").from("dm_vat_tu")
-          .select("ma_bravo, ten_vat_tu, phan_loai, san_pham, nhom_san_pham").in("ma_bravo", maList);
+          .select("ma_bravo, ten_vat_tu, phan_loai, san_pham, nhom_san_pham, ma_ncc").in("ma_bravo", maList);
         for (const d of (dmRes.data ?? [])) {
-          nameMap.set(d.ma_bravo, { ten: d.ten_vat_tu, phan_loai: d.phan_loai, san_pham: d.san_pham, nhom_san_pham: d.nhom_san_pham });
+          nameMap.set(d.ma_bravo, { ten: d.ten_vat_tu, phan_loai: d.phan_loai, san_pham: d.san_pham, nhom_san_pham: d.nhom_san_pham, ma_ncc: d.ma_ncc });
         }
       }
       const enriched = rows.map((r: any) => ({
@@ -223,6 +223,7 @@ async function handleAction(
         phan_loai:      nameMap.get(r.ma_bravo)?.phan_loai ?? null,
         san_pham:       nameMap.get(r.ma_bravo)?.san_pham ?? null,
         nhom_san_pham:  nameMap.get(r.ma_bravo)?.nhom_san_pham ?? null,
+        ma_ncc:         nameMap.get(r.ma_bravo)?.ma_ncc ?? null,
       }));
       let filtered = enriched;
       if (payload.phan_loai)
@@ -235,14 +236,12 @@ async function handleAction(
       return { ok: true, rows: filtered, total: count ?? filtered.length, page, pageSize };
     }
 
-    // KPI + options cho màn tài sản (aggregate, không phân trang)
+    // KPI + options + mien_counts cho màn tài sản (aggregate, không phân trang)
     case "tai_san_kpi": {
       let q = admin.schema("app_ccdc").from("tai_san")
-        .select("ma_bravo, so_luong, nguyen_gia, tinh_trang")
+        .select("ma_bravo, so_luong, nguyen_gia, tinh_trang, mien, loai_vi_tri")
         .eq("trang_thai_hd", "Active");
 
-      if (perm.filterMien) payload.mien = perm.filterMien;
-      if (payload.mien)        q = q.eq("mien", payload.mien);
       if (payload.loai_vi_tri) q = q.eq("loai_vi_tri", payload.loai_vi_tri);
       const search = sanitizeSearch(payload.search ?? "");
       if (search) {
@@ -289,15 +288,38 @@ async function handleAction(
       if (payload.nhom_san_pham)
         filtered = filtered.filter((r: any) => r.nhom_san_pham === payload.nhom_san_pham);
 
-      const sl = filtered.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
-      const gia_tri = filtered.reduce((s: number, r: any) =>
-        s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
-      const gia_tri_dang_dung = filtered
-        .filter((r: any) => r.tinh_trang === "dang_dung")
-        .reduce((s: number, r: any) =>
-          s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
+      // Tính mien_counts trước khi lọc miền (dùng cho tabs)
+      const mien_counts: Record<string, number> = {};
+      for (const r of filtered) {
+        const m = r.mien || "—";
+        mien_counts[m] = (mien_counts[m] || 0) + Number(r.so_luong ?? 0);
+      }
 
-      return { ok: true, sl, gia_tri, gia_tri_dang_dung, nhom_sp_options };
+      // Áp dụng miền filter cho KPI
+      const effMien = perm.filterMien || payload.mien || null;
+      let mienFiltered = filtered;
+      if (effMien)
+        mienFiltered = mienFiltered.filter((r: any) => r.mien === effMien);
+
+      const sl = mienFiltered.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+      const gia_tri = mienFiltered.reduce((s: number, r: any) =>
+        s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
+      const dangDung = mienFiltered.filter((r: any) => r.tinh_trang === "dang_dung");
+      const gia_tri_dang_dung = dangDung.reduce((s: number, r: any) =>
+          s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0);
+      const sl_dang_dung = dangDung.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+
+      const lvt_stats: Record<string, { sl: number; gia_tri: number }> = {};
+      for (const lv of ["Kho", "Sale/KTV", "Bệnh viện"]) {
+        const sub = mienFiltered.filter((r: any) => r.loai_vi_tri === lv);
+        lvt_stats[lv] = {
+          sl: sub.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0),
+          gia_tri: sub.reduce((s: number, r: any) =>
+            s + Number(r.so_luong ?? 0) * Number(r.nguyen_gia ?? 0), 0),
+        };
+      }
+
+      return { ok: true, sl, gia_tri, gia_tri_dang_dung, sl_dang_dung, nhom_sp_options, mien_counts, lvt_stats };
     }
 
     // ── Giao dịch (ledger) ──────────────────────────────────────────────
