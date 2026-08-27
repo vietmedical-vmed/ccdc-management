@@ -44,6 +44,31 @@
     );
   }
 
+  // ─── BudgetCard (thẻ ngân sách tổng hợp + progress bar) ──
+  function BudgetCard({ label, used, total, fmt, unit }) {
+    const pct = total ? Math.round((used / total) * 100) : 0;
+    const s = pct > 100 ? "VUOT" : pct >= 80 ? "CANH_BAO" : "OK";
+    const color = STATUS_COLOR[s];
+    const stat = STATUS_TEXT[s];
+    return h("div", { className: "bg-white border border-slate-200 rounded-lg p-4" },
+      h("div", { className: "text-xs text-slate-500 uppercase tracking-wide font-semibold mb-2" }, label),
+      h("div", { className: "flex items-center justify-between mb-1" },
+        h("span", { className: "text-xl md:text-2xl font-bold tabular-nums text-slate-900" }, pct + "%"),
+        h("span", { className: "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold " + stat.cls }, stat.label),
+      ),
+      h("div", { className: "relative h-3 rounded bg-slate-100 overflow-hidden" },
+        h("div", {
+          className: "absolute inset-y-0 left-0 rounded transition-all",
+          style: { width: Math.min(pct, 100) + "%", background: color },
+        }),
+      ),
+      h("div", { className: "text-xs text-slate-500 mt-1.5" },
+        "Đã dùng ", h("b", { className: "text-slate-900 tabular-nums" }, fmt(used)),
+        " / đăng ký ", h("b", { className: "text-slate-900 tabular-nums" }, fmt(total)), " " + unit,
+      ),
+    );
+  }
+
   // ─── Gauge (thanh tiến độ budget) ────────────────────────
   function Gauge({ r }) {
     const dk = Number(r.sl_dang_ky || 0);
@@ -310,13 +335,18 @@
     const slPct      = slDK ? Math.round((slConLai / slDK) * 100) : 0;
 
     return h("div", { className: "p-4 md:p-6 space-y-6" },
-      // KPI row
-      h("div", { className: "grid grid-cols-2 md:grid-cols-5 gap-3" },
-        h(Kpi, { label: "Đăng ký " + fyLabel, value: fmtInt(slDK) + " bộ", sub: "tất cả nhóm", accent: true }),
-        h(Kpi, { label: "Đã dùng YTD", value: fmtInt(slDD) + " bộ", sub: fmtShort(k.mua_moi_ytd) + " ₫" }),
-        h(Kpi, { label: "Còn lại", value: fmtInt(slConLai) + " bộ", sub: slPct + "% đăng ký" }),
-        h(Kpi, { label: "Huỷ YTD", value: fmtShort(k.huy_ytd), sub: "gồm cả mất" }),
-        h(Kpi, { label: "Số tài sản", value: fmtInt(k.so_tai_san), sub: fmtInt(k.so_luong_tong) + " đơn vị" }),
+      // Row 1: 4 thẻ chỉ số tài sản
+      h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
+        h(Kpi, { label: "Tài sản hiện có", value: fmtInt(k.so_luong_tong), sub: fmtInt(k.so_tai_san) + " mã", accent: true }),
+        h(Kpi, { label: "Tổng tài sản đầu năm", value: fmtInt(k.ton_dau_ky), sub: "tồn đầu kỳ 1/4/" + fy }),
+        h(Kpi, { label: "Mua mới trong năm", value: fmtInt(k.sl_mua_moi_ytd), sub: fmtShort(k.mua_moi_ytd) + " ₫" }),
+        h(Kpi, { label: "Đã hủy/mất trong năm", value: fmtInt(k.sl_huy_mat_ytd), sub: fmtShort(k.huy_ytd) + " ₫" }),
+      ),
+
+      // Row 2: 2 thẻ ngân sách tổng hợp
+      h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3" },
+        h(BudgetCard, { label: "Ngân sách theo bộ", used: slDD, total: slDK, fmt: fmtInt, unit: "bộ" }),
+        h(BudgetCard, { label: "Ngân sách theo tiền", used: Number(k.ngan_sach_ca_nam || 0), total: Number(k.tong_tien_dang_ky || 0), fmt: fmtShort, unit: "₫" }),
       ),
 
       // Budget gauges

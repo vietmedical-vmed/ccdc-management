@@ -527,7 +527,7 @@ async function handleAction(
         tsQ,
         admin.schema("app_ccdc").from("giao_dich")
           .select("ngay, loai, thanh_tien, so_luong, ma_bravo, tai_san_id")
-          .in("loai", ["nhap_moi", "huy"])
+          .in("loai", ["nhap_moi", "huy", "mat"])
           .gte("ngay", fyStart).lt("ngay", fyEnd),
         admin.schema("app_ccdc").from("giao_dich")
           .select("id, ngay, loai, ma_bravo, tai_san_id, so_luong, thanh_tien, ghi_chu")
@@ -572,8 +572,13 @@ async function handleAction(
 
       const mua_moi_ytd = gdFy.filter((r: any) => r.loai === "nhap_moi")
         .reduce((s: number, r: any) => s + Number(r.thanh_tien ?? 0), 0);
-      const huy_ytd = gdFy.filter((r: any) => r.loai === "huy")
+      const huy_ytd = gdFy.filter((r: any) => r.loai === "huy" || r.loai === "mat")
         .reduce((s: number, r: any) => s + Number(r.thanh_tien ?? 0), 0);
+      const sl_mua_moi_ytd = gdFy.filter((r: any) => r.loai === "nhap_moi")
+        .reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+      const sl_huy_mat_ytd = gdFy.filter((r: any) => r.loai === "huy" || r.loai === "mat")
+        .reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+      const ton_dau_ky = so_luong_tong + sl_huy_mat_ytd - sl_mua_moi_ytd;
 
       // KPI giá trị còn lại (view — cannot filter by scope, show global)
       const tong_gia_tri_con_lai = (conLaiRes.data ?? [])
@@ -581,13 +586,14 @@ async function handleAction(
 
       // Budget cả năm FY hiện tại — aggregate theo nhóm SP cho gauge
       const budgetRaw = budgetRes.data ?? [];
-      const budgetByNhom: Record<string, { nhom_san_pham: string; sl_dang_ky: number; sl_da_dung: number; da_chi: number }> = {};
+      const budgetByNhom: Record<string, { nhom_san_pham: string; sl_dang_ky: number; sl_da_dung: number; da_chi: number; tien_dang_ky: number }> = {};
       for (const r of budgetRaw) {
         const k = r.nhom_san_pham || "(tất cả)";
-        const agg = (budgetByNhom[k] ??= { nhom_san_pham: k, sl_dang_ky: 0, sl_da_dung: 0, da_chi: 0 });
-        agg.sl_dang_ky += Number(r.sl_dang_ky ?? 0);
-        agg.sl_da_dung += Number(r.sl_da_dung ?? 0);
-        agg.da_chi     += Number(r.da_chi ?? 0);
+        const agg = (budgetByNhom[k] ??= { nhom_san_pham: k, sl_dang_ky: 0, sl_da_dung: 0, da_chi: 0, tien_dang_ky: 0 });
+        agg.sl_dang_ky  += Number(r.sl_dang_ky ?? 0);
+        agg.sl_da_dung  += Number(r.sl_da_dung ?? 0);
+        agg.da_chi      += Number(r.da_chi ?? 0);
+        agg.tien_dang_ky += Number(r.sl_dang_ky ?? 0) * Number(r.don_gia_mua ?? 0);
       }
       const budget = Object.values(budgetByNhom).map(r => ({
         ...r,
@@ -602,6 +608,8 @@ async function handleAction(
         s + Number(r.sl_dang_ky ?? 0), 0);
       const tong_sl_da_dung = budgetRaw.reduce((s: number, r: any) =>
         s + Number(r.sl_da_dung ?? 0), 0);
+      const tong_tien_dang_ky = budgetRaw.reduce((s: number, r: any) =>
+        s + Number(r.sl_dang_ky ?? 0) * Number(r.don_gia_mua ?? 0), 0);
 
       // Chart 12 tháng FY: fill 0 nếu tháng chưa có data
       const chartMap: Record<string, { nhap_moi: number; huy: number }> = {};
@@ -674,6 +682,8 @@ async function handleAction(
           tong_nguyen_gia, tong_gia_tri_con_lai,
           mua_moi_ytd, huy_ytd, ngan_sach_ca_nam,
           tong_sl_dang_ky, tong_sl_da_dung,
+          sl_mua_moi_ytd, sl_huy_mat_ytd, ton_dau_ky,
+          tong_tien_dang_ky,
         },
         ton_by_mien: Object.entries(tonByMien).map(([mien, M]) => ({
           mien, ...pickAgg(M),
