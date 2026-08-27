@@ -458,7 +458,7 @@
           h("div", { className: "text-sm text-slate-600 mb-3" },
             "Chọn file Excel (.xlsx / .xls) theo format:"),
           h("div", { className: "inline-block bg-white border border-slate-200 rounded px-4 py-2 text-xs font-mono text-slate-700 mb-4" },
-            "Nhóm sản phẩm | Miền | Mã NCC | Mã Bravo | Tên TSCĐ/CCDC | Đơn giá | SL"),
+            "Nhóm sản phẩm | Miền | Mã NCC | Mã Bravo | SL | Đơn giá"),
           h("div", null,
             h("input", {
               ref: fileRef, type: "file", accept: ".xlsx,.xls",
@@ -484,7 +484,7 @@
             h("table", { className: "w-full text-sm" },
               h("thead", { className: "bg-slate-50 border-b border-slate-200 sticky top-0 z-10" },
                 h("tr", null,
-                  ["#", "Nhóm SP", "Miền", "Mã NCC", "Mã Bravo", "Tên hàng hóa", "Đơn giá", "SL"].map((c, i) =>
+                  ["#", "Nhóm SP", "Miền", "Mã NCC", "Mã Bravo", "SL", "Đơn giá"].map((c, i) =>
                     h("th", { key: i, className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase" +
                       (["Đơn giá", "SL"].includes(c) ? " text-right" : "") }, c)),
                 ),
@@ -497,9 +497,8 @@
                     h("td", { className: cellCls + " text-xs" }, r.mien || "(tất cả)"),
                     h("td", { className: cellCls + " font-mono text-xs text-slate-500" }, r.ma_ncc || "—"),
                     h("td", { className: cellCls + " font-mono text-xs font-semibold" }, r.ma_bravo),
-                    h("td", { className: cellCls + " text-slate-700 max-w-xs truncate" }, r.ten || "—"),
-                    h("td", { className: cellCls + " text-right tabular-nums text-slate-600" }, r.don_gia != null ? fmtMoney(r.don_gia) : "—"),
                     h("td", { className: cellCls + " text-right tabular-nums font-bold" }, r.so_luong),
+                    h("td", { className: cellCls + " text-right tabular-nums text-slate-600" }, r.don_gia != null ? fmtMoney(r.don_gia) : "—"),
                   ),
                 ),
               ),
