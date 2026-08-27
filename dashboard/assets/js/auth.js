@@ -102,7 +102,7 @@
         },
       },
         h("img", {
-          src: "logo.svg", alt: "VietMedical",
+          src: "logo.png", alt: "VietMedical",
           style: { height: 48, display: "block", margin: "0 auto 16px" },
         }),
         h("h2", { style: { fontSize: 18, fontWeight: 700, margin: 0 } }, "QUẢN LÝ CCDC & THIẾT BỊ"),
