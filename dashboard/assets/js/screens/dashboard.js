@@ -1,10 +1,9 @@
-// Màn Tổng quan — KPI YTD + Gauge budget + Bar chart mua mới/huỷ theo tháng.
+// Màn Tổng quan — KPI tài sản + thẻ ngân sách + tồn theo miền + GD gần nhất.
 (function () {
-  const { useState, useEffect, useMemo } = React;
+  const { useState, useEffect } = React;
   const h = React.createElement;
   const { api } = window.CCDC_API;
 
-  const vnd    = (n) => (n == null || Number(n) === 0) ? "0" : Math.round(Number(n)).toLocaleString("vi-VN");
   const fmtInt = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString("vi-VN");
   const fmtShort = (n) => {
     if (n == null || Number(n) === 0) return "0";
@@ -104,112 +103,6 @@
         "Đã dùng ", h("b", { className: "text-slate-900 tabular-nums" }, fmtInt(dd)),
         " / đăng ký ", h("b", { className: "text-slate-900 tabular-nums" }, fmtInt(dk)), " bộ",
         chi > 0 && h("span", { className: "ml-2 text-slate-400" }, "· " + fmtShort(chi) + " ₫"),
-      ),
-    );
-  }
-
-  // ─── ChartTheoKy: SVG grouped bar chart 2 series ────────
-  function niceMax(v) {
-    if (v <= 0) return 1;
-    const p = Math.pow(10, Math.floor(Math.log10(v)));
-    const n = v / p;
-    const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-    return step * p;
-  }
-  function ChartTheoKy({ months }) {
-    const [hover, setHover] = useState(null);
-    const series = [
-      { key: "nhap_moi", label: "Mua mới", color: "#1877f2" },
-      { key: "huy",      label: "Huỷ",     color: "#ef4444" },
-    ];
-    const rawMax = Math.max(1, ...months.flatMap(d => series.map(s => Number(d[s.key] || 0))));
-    const yMax = niceMax(rawMax);
-    const W = 720, H = 300, padL = 60, padR = 14, padT = 16, padB = 34;
-    const pw = W - padL - padR, ph = H - padT - padB;
-    const gw = pw / months.length;
-    const barW = 20, gap = 4;
-    const inner = series.length * barW + (series.length - 1) * gap;
-    const off = (gw - inner) / 2;
-    const y = v => padT + ph - (v / yMax) * ph;
-    const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => t * yMax);
-    const fmtTick = v => v >= 1e9 ? (v / 1e9).toFixed(1) + "tỷ" :
-                        v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + "tr" :
-                        v >= 1e3 ? Math.round(v / 1e3) + "k" : String(v);
-    const barPath = (x, yy, w, hh, r) => {
-      r = Math.min(r, hh);
-      return `M${x},${yy+hh} L${x},${yy+r} Q${x},${yy} ${x+r},${yy} ` +
-             `L${x+w-r},${yy} Q${x+w},${yy} ${x+w},${yy+r} L${x+w},${yy+hh} Z`;
-    };
-    const monthShort = (k) => "T" + parseInt(k.slice(5), 10);
-    const hasData = months.some(d => Number(d.nhap_moi || 0) + Number(d.huy || 0) > 0);
-
-    if (!hasData) return h("div", {
-      className: "text-center text-sm text-slate-400 py-12",
-    }, "Chưa có giao dịch mua mới / huỷ trong FY này");
-
-    return h("div", null,
-      h("div", { className: "flex gap-4 mb-2 text-xs text-slate-600" },
-        series.map(s => h("span", { key: s.key, className: "flex items-center gap-1.5" },
-          h("span", { className: "inline-block w-3 h-3 rounded", style: { background: s.color } }),
-          s.label))),
-      h("div", { className: "overflow-x-auto" },
-        h("svg", {
-          viewBox: `0 0 ${W} ${H}`, width: "100%",
-          style: { maxWidth: W, height: "auto", display: "block" },
-          role: "img", "aria-label": "Giá trị mua mới / huỷ theo tháng",
-        },
-          // Grid + Y labels
-          ticks.map((t, i) => h("g", { key: i },
-            h("line", { x1: padL, x2: W - padR, y1: y(t), y2: y(t), stroke: "#e2e8f0", strokeWidth: 1 }),
-            h("text", { x: padL - 8, y: y(t) + 4, textAnchor: "end", fill: "#64748b", fontSize: 11 }, fmtTick(t)),
-          )),
-          // X axis
-          h("line", { x1: padL, x2: W - padR, y1: padT + ph, y2: padT + ph, stroke: "#94a3b8", strokeWidth: 1 }),
-          // Bars + month labels
-          months.map((d, gi) => {
-            const gx = padL + gi * gw;
-            return h("g", { key: d.ky },
-              h("text", { x: gx + gw / 2, y: padT + ph + 18, textAnchor: "middle", fill: "#64748b", fontSize: 11 },
-                monthShort(d.ky)),
-              series.map((s, si) => {
-                const v = Number(d[s.key] || 0);
-                if (!v) return null;
-                const x = gx + off + si * (barW + gap);
-                const hh = (v / yMax) * ph;
-                const yy = y(v);
-                const on = hover && hover.gi === gi && hover.si === si;
-                return h("path", {
-                  key: s.key,
-                  d: barPath(x, yy, barW, hh, 3),
-                  fill: s.color,
-                  opacity: hover && !on ? 0.5 : 1,
-                  style: { cursor: "pointer", transition: "opacity 120ms" },
-                  onMouseEnter: () => setHover({ gi, si, x: x + barW / 2, yy, v, label: s.label, ky: d.ky }),
-                  onMouseLeave: () => setHover(null),
-                });
-              }),
-            );
-          }),
-          // Hover tooltip
-          hover && h("g", { pointerEvents: "none" },
-            h("line", {
-              x1: hover.x, x2: hover.x, y1: padT, y2: padT + ph,
-              stroke: "#94a3b8", strokeDasharray: "3 3",
-            }),
-            h("rect", {
-              x: Math.min(hover.x - 60, W - 130), y: Math.max(hover.yy - 44, padT),
-              width: 120, height: 38, rx: 6, fill: "#fff", stroke: "#cbd5e1",
-            }),
-            h("text", {
-              x: Math.min(hover.x - 52, W - 122), y: Math.max(hover.yy - 28, padT + 14),
-              fill: "#475569", fontSize: 11,
-            }, `${hover.label} · ${monthShort(hover.ky)}`),
-            h("text", {
-              x: Math.min(hover.x - 52, W - 122), y: Math.max(hover.yy - 12, padT + 30),
-              fill: "#0f172a", fontSize: 12, fontWeight: 700,
-            }, vnd(hover.v) + " ₫"),
-          ),
-        ),
       ),
     );
   }
@@ -322,7 +215,6 @@
     const k       = data.kpi || {};
     const ton     = data.ton_by_mien || [];
     const budget  = data.budget || [];
-    const chart   = data.chart_theo_ky || [];
     const recent  = (data.recent_giao_dich || []).slice()
       .sort((a, b) => String(b.ngay).localeCompare(String(a.ngay)) || (b.id - a.id));
     const fy      = data.fy;
@@ -334,19 +226,23 @@
     const slConLai   = slDK - slDD;
     const slPct      = slDK ? Math.round((slConLai / slDK) * 100) : 0;
 
+    // Giá trị tiền tương ứng cho từng thẻ
+    const gtHienCo   = Number(k.tong_nguyen_gia || 0);
+    const gtTonDau   = gtHienCo + Number(k.huy_ytd || 0) - Number(k.mua_moi_ytd || 0);
+
     return h("div", { className: "p-4 md:p-6 space-y-6" },
-      // Row 1: 4 thẻ chỉ số tài sản
+      // Row 1: 4 thẻ chỉ số tài sản — dưới SL là giá trị tiền tương ứng
       h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
-        h(Kpi, { label: "Tài sản hiện có", value: fmtInt(k.so_luong_tong), sub: fmtInt(k.so_tai_san) + " mã", accent: true }),
-        h(Kpi, { label: "Tổng tài sản đầu năm", value: fmtInt(k.ton_dau_ky), sub: "tồn đầu kỳ 1/4/" + fy }),
+        h(Kpi, { label: "Tài sản hiện có", value: fmtInt(k.so_luong_tong), sub: fmtShort(gtHienCo) + " ₫", accent: true }),
+        h(Kpi, { label: "Tổng tài sản đầu năm", value: fmtInt(k.ton_dau_ky), sub: fmtShort(gtTonDau) + " ₫" }),
         h(Kpi, { label: "Mua mới trong năm", value: fmtInt(k.sl_mua_moi_ytd), sub: fmtShort(k.mua_moi_ytd) + " ₫" }),
         h(Kpi, { label: "Đã hủy/mất trong năm", value: fmtInt(k.sl_huy_mat_ytd), sub: fmtShort(k.huy_ytd) + " ₫" }),
       ),
 
       // Row 2: 2 thẻ ngân sách tổng hợp
       h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-3" },
-        h(BudgetCard, { label: "Ngân sách theo bộ", used: slDD, total: slDK, fmt: fmtInt, unit: "bộ" }),
-        h(BudgetCard, { label: "Ngân sách theo tiền", used: Number(k.ngan_sach_ca_nam || 0), total: Number(k.tong_tien_dang_ky || 0), fmt: fmtShort, unit: "₫" }),
+        h(BudgetCard, { label: "Ngân sách theo số lượng", used: slDD, total: slDK, fmt: fmtInt, unit: "bộ" }),
+        h(BudgetCard, { label: "Ngân sách theo giá trị", used: Number(k.ngan_sach_ca_nam || 0), total: Number(k.tong_tien_dang_ky || 0), fmt: fmtShort, unit: "₫" }),
       ),
 
       // Budget gauges
@@ -362,14 +258,6 @@
                 " — vào ", h("a", { href: "#/ngan-sach", className: "text-blue-600 hover:underline" }, "Ngân sách"))
             : budget.map((r, i) => h(Gauge, { key: i, r })),
         ),
-      ),
-
-      // Chart theo tháng
-      h("div", { className: "bg-white border border-slate-200 rounded-lg" },
-        h("div", { className: "px-4 py-3 border-b border-slate-200 font-semibold text-sm text-slate-700" },
-          "Giá trị mua mới / huỷ theo tháng — " + fyLabel,
-        ),
-        h("div", { className: "px-4 py-3" }, h(ChartTheoKy, { months: chart })),
       ),
 
       // 2 cột: Tồn theo miền + Recent GD
