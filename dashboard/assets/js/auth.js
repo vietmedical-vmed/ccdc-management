@@ -103,11 +103,10 @@
       },
         h("img", {
           src: "logo.png", alt: "VietMedical",
-          style: { height: 48, display: "block", margin: "0 auto 16px" },
+          style: { height: 48, display: "block", margin: "0 auto 24px" },
         }),
-        h("h2", { style: { fontSize: 18, fontWeight: 700, margin: 0 } }, "QUẢN LÝ CCDC & THIẾT BỊ"),
-        h("p", { style: { fontSize: 13, color: "#65676b", marginTop: 4, marginBottom: 20 } },
-          isChange ? "Đổi mật khẩu" : "Đăng nhập để truy cập"),
+        h("h2", { style: { fontSize: 18, fontWeight: 700, margin: "0 0 20px", textAlign: "center", textTransform: "uppercase" } },
+          isChange ? "ĐỔI MẬT KHẨU" : "QUẢN LÝ CCDC & THIẾT BỊ"),
 
         h("input", {
           autoFocus: true, value: username, onChange: (e) => setUsername(e.target.value),
@@ -131,7 +130,7 @@
           style: { display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 12, color: "#65676b", cursor: "pointer" },
         },
           h("input", { type: "checkbox", checked: remember, onChange: (e) => setRemember(e.target.checked) }),
-          "Ghi nhớ đăng nhập trên máy này",
+          "Ghi nhớ đăng nhập trên thiết bị này",
         ),
 
         info && h("div", {
@@ -157,6 +156,8 @@
           }, isChange ? "Quay lại đăng nhập" : "Đổi mật khẩu"),
         ),
       ),
+      h("div", { style: { marginTop: 24, textAlign: "center", fontSize: 11, color: "#8a8d91" } },
+        "Designed and developed by Do Hoang Giang"),
     );
   }
 
