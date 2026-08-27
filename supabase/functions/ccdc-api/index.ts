@@ -425,22 +425,23 @@ async function handleAction(
       const items = (data ?? []).filter((r: any) => r.ma_bravo && r.ma_bravo !== "Chưa có");
 
       const maList = items.map((r: any) => r.ma_bravo);
-      const existingMap = new Map<string, { id: number; so_luong: number }>();
+      const existingMap = new Map<string, { id: number; so_luong: number; don_gia: number | null }>();
       if (maList.length && nam_tai_chinh) {
         let eq = admin.schema("app_ccdc").from("ngan_sach")
-          .select("ma_bravo, so_luong, id")
+          .select("ma_bravo, so_luong, don_gia, id")
           .eq("nam_tai_chinh", Number(nam_tai_chinh))
           .in("ma_bravo", maList);
         if (mien) eq = eq.eq("mien", mien);
         else eq = eq.is("mien", null);
         const { data: existing } = await eq;
         for (const r of (existing ?? []))
-          existingMap.set(r.ma_bravo, { id: r.id, so_luong: r.so_luong });
+          existingMap.set(r.ma_bravo, { id: r.id, so_luong: r.so_luong, don_gia: r.don_gia });
       }
       const rows = items.map((r: any) => ({
         ...r,
         existing_id: existingMap.get(r.ma_bravo)?.id ?? null,
         existing_sl: existingMap.get(r.ma_bravo)?.so_luong ?? null,
+        existing_don_gia: existingMap.get(r.ma_bravo)?.don_gia ?? null,
       }));
       return { ok: true, rows };
     }
@@ -468,11 +469,12 @@ async function handleAction(
       const results: any[] = [];
       for (const item of items) {
         if (!item.ma_bravo || !item.so_luong || Number(item.so_luong) <= 0) continue;
-        const row = {
+        const row: any = {
           nam_tai_chinh: Number(nam_tai_chinh),
           ma_bravo: String(item.ma_bravo).trim(),
           mien: mien || null,
           so_luong: Number(item.so_luong),
+          don_gia: item.don_gia != null ? Number(item.don_gia) : null,
         };
         const q = item.id
           ? admin.schema("app_ccdc").from("ngan_sach").update(row).eq("id", item.id).select().single()
@@ -487,15 +489,16 @@ async function handleAction(
     // Sửa 1 dòng ngân sách (inline edit từ bảng chính)
     case "upsert_ngan_sach": {
       if (!perm.canWrite) return { ok: false, error: "forbidden" };
-      const { id, nam_tai_chinh, ma_bravo, mien, so_luong } = payload;
+      const { id, nam_tai_chinh, ma_bravo, mien, so_luong, don_gia } = payload;
       if (!nam_tai_chinh) return { ok: false, error: "missing_nam_tai_chinh" };
       if (!ma_bravo) return { ok: false, error: "missing_ma_bravo" };
       if (!so_luong || Number(so_luong) <= 0) return { ok: false, error: "invalid_so_luong" };
-      const row = {
+      const row: any = {
         nam_tai_chinh: Number(nam_tai_chinh),
         ma_bravo:      String(ma_bravo).trim(),
         mien:          mien || null,
         so_luong:      Number(so_luong),
+        don_gia:       don_gia != null ? Number(don_gia) : null,
       };
       const q = id
         ? admin.schema("app_ccdc").from("ngan_sach").update(row).eq("id", id).select().single()
