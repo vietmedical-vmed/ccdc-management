@@ -245,13 +245,20 @@ create or replace view app_ccdc.v_gia_tri_theo_ky as
 
 create or replace view app_ccdc.v_budget_canh_bao as
   with dung as (
-    select g.ma_bravo, ts.mien, app_ccdc.fn_fy(g.ky) as fy,
+    select g.ma_bravo,
+           coalesce(ts.mien, fb.mien) as mien,
+           app_ccdc.fn_fy(g.ky) as fy,
            sum(g.so_luong)   as sl_da_dung,
            sum(g.thanh_tien) as da_chi
     from app_ccdc.giao_dich g
     left join app_ccdc.tai_san ts on ts.id = g.tai_san_id
+    left join lateral (
+        select t2.mien from app_ccdc.tai_san t2
+        where t2.ma_bravo = g.ma_bravo and t2.mien is not null
+        order by t2.id desc limit 1
+    ) fb on ts.mien is null
     where g.loai = 'nhap_moi'
-    group by g.ma_bravo, ts.mien, app_ccdc.fn_fy(g.ky)
+    group by g.ma_bravo, coalesce(ts.mien, fb.mien), app_ccdc.fn_fy(g.ky)
   ),
   dm as (
     select distinct on (ma_bravo)
