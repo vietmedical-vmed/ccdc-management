@@ -91,7 +91,7 @@
     };
 
     return h("div", {
-      style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f2f5", padding: 16 },
+      style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f0f2f5", padding: 16 },
     },
       h("form", {
         onSubmit: submit,
