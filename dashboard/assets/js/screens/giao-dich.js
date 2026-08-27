@@ -531,14 +531,12 @@
     useEffect(() => { fetchData(); }, [fetchData]);
 
     const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const tongTT = rows.reduce((s, r) => s + Number(r.thanh_tien || 0), 0);
     const sel = "px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white outline-none focus:border-blue-400";
 
     return h("div", { className: "p-4 md:p-6 space-y-4" },
       h("div", { className: "flex items-baseline gap-3 flex-wrap" },
         h("h1", { className: "text-lg font-bold text-slate-900" }, "Giao dịch"),
-        h("span", { className: "text-xs text-slate-500" },
-          loading ? "đang tải…" : `${fmtInt(total)} dòng · thành tiền trang này ${fmtMoney(tongTT)}₫`),
+        loading && h("span", { className: "text-xs text-slate-500" }, "đang tải…"),
         canWrite && h("button", {
           onClick: () => setModalOpen(true),
           className: "ml-auto px-3 py-1.5 text-xs font-semibold rounded bg-blue-500 text-white hover:bg-blue-600",
@@ -568,18 +566,19 @@
         h("div", { className: "overflow-x-auto" },
           h("table", { className: "w-full text-sm" },
             h("thead", { className: "bg-slate-50 border-b border-slate-200" },
-              h("tr", null, ["Ngày", "Loại", "Mã", "Tên", "SL", "Đơn giá", "Thành tiền", "Ghi chú"].map((c, i) =>
+              h("tr", null, ["Ngày", "Loại", "Mã NCC", "Mã Bravo", "Tên", "SL", "Đơn giá", "Thành tiền", "Ghi chú"].map((c, i) =>
                 h("th", { key: i, className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide " +
                   (["SL","Đơn giá","Thành tiền"].includes(c) ? "text-right" : "") }, c)))),
             h("tbody", null,
               rows.length === 0 && !loading
-                ? h("tr", null, h("td", { colSpan: 8, className: "px-3 py-8 text-center text-sm text-slate-400" },
+                ? h("tr", null, h("td", { colSpan: 9, className: "px-3 py-8 text-center text-sm text-slate-400" },
                     "Chưa có giao dịch nào"))
                 : rows.map(r => h("tr", { key: r.id, className: "border-b border-slate-100 hover:bg-slate-50" },
                     h("td", { className: "px-3 py-2 whitespace-nowrap text-slate-700" }, fmtDate(r.ngay)),
                     h("td", { className: "px-3 py-2" },
                       h("span", { className: "inline-block px-2 py-0.5 rounded text-[11px] font-semibold " + (LOAI_BADGE[r.loai] || "bg-slate-100 text-slate-700") },
                         LOAI_LABEL[r.loai] || r.loai)),
+                    h("td", { className: "px-3 py-2 font-mono text-xs text-slate-700" }, r.ma_ncc || "—"),
                     h("td", { className: "px-3 py-2 font-mono text-xs text-slate-900" }, r.ma_bravo),
                     h("td", { className: "px-3 py-2 text-slate-800" }, r.ten_vat_tu || "—"),
                     h("td", { className: "px-3 py-2 text-right tabular-nums" }, fmtInt(r.so_luong)),

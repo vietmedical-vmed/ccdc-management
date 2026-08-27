@@ -350,16 +350,17 @@ async function handleAction(
       const rows = data ?? [];
 
       const maList = [...new Set(rows.map((r: any) => r.ma_bravo).filter(Boolean))];
-      let dmMap2 = new Map<string, { ten: string; nsp: string }>();
+      let dmMap2 = new Map<string, { ten: string; nsp: string; ncc: string | null }>();
       if (maList.length) {
         const dmRes = await admin.schema("shared").from("dm_vat_tu")
-          .select("ma_bravo, ten_vat_tu, nhom_san_pham").in("ma_bravo", maList);
+          .select("ma_bravo, ten_vat_tu, nhom_san_pham, ma_ncc").in("ma_bravo", maList);
         for (const d of (dmRes.data ?? []))
-          dmMap2.set(d.ma_bravo, { ten: d.ten_vat_tu, nsp: d.nhom_san_pham });
+          dmMap2.set(d.ma_bravo, { ten: d.ten_vat_tu, nsp: d.nhom_san_pham, ncc: d.ma_ncc ?? null });
       }
       let enriched = rows.map((r: any) => ({
         ...r,
         ten_vat_tu: dmMap2.get(r.ma_bravo)?.ten ?? null,
+        ma_ncc: dmMap2.get(r.ma_bravo)?.ncc ?? null,
       }));
 
       if (perm.filterNhomSP?.length)
@@ -376,6 +377,14 @@ async function handleAction(
           enriched = enriched.filter((r: any) => mienSet.has(r.tai_san_id));
         }
       }
+
+      enriched.sort((a: any, b: any) => {
+        const da = String(a.ngay ?? ""), db = String(b.ngay ?? "");
+        if (da !== db) return da > db ? -1 : 1;
+        const na = String(a.ma_ncc ?? "").toLowerCase(), nb = String(b.ma_ncc ?? "").toLowerCase();
+        if (na !== nb) return na < nb ? -1 : 1;
+        return 0;
+      });
 
       return { ok: true, rows: enriched, total: count ?? enriched.length, page, pageSize };
     }
