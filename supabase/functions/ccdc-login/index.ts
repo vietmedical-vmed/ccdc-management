@@ -70,11 +70,12 @@ Deno.serve(async (req) => {
 
   const { data: user, error } = await admin
     .schema("shared").from("users")
-    .select("username, password_hash, salt, role, scope, bu, mien, ho_va_ten")
+    .select("username, password_hash, salt, role, scope, bu, mien, ho_va_ten, active")
     .eq("username", username)
     .maybeSingle();
 
   if (error || !user) return json({ ok: false, error: "invalid" }, 401);
+  if (user.active === false) return json({ ok: false, error: "invalid" }, 401);
 
   const toHash = user.salt ? (user.salt + ":" + password) : password;
   const inputHash = await sha256Hex(toHash);
