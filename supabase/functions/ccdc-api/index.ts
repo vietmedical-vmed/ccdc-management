@@ -81,9 +81,16 @@ const MIEN_NORM: Record<string, string> = {
 
 type Permission = {
   canWrite: boolean;
-  filterMien: string | null;
+  filterMien: string[] | null;
   filterNhomSP: string[] | null;
 };
+
+// users.mien có thể là nhiều miền "MB, MT" (area_manager). BOTH/ALL/rỗng = không giới hạn miền.
+function mienList(raw: string): string[] | null {
+  const list = String(raw || "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  if (!list.length || list.some((m) => m.toUpperCase() === "BOTH" || m.toUpperCase() === "ALL")) return null;
+  return [...new Set(list.map((m) => MIEN_NORM[m] ?? m))];
+}
 
 function getPermission(session: Session): Permission {
   const role = (session.role || "").toLowerCase();
@@ -95,12 +102,10 @@ function getPermission(session: Session): Permission {
       return { canWrite: false, filterMien: null, filterNhomSP: scopes };
     }
     case "am": {
-      const m = MIEN_NORM[session.mien] ?? session.mien ?? null;
-      return { canWrite: false, filterMien: m, filterNhomSP: null };
+      return { canWrite: false, filterMien: mienList(session.mien), filterNhomSP: null };
     }
     default: {
-      const m = MIEN_NORM[session.mien] ?? session.mien ?? null;
-      return { canWrite: false, filterMien: m, filterNhomSP: null };
+      return { canWrite: false, filterMien: mienList(session.mien), filterNhomSP: null };
     }
   }
 }
@@ -202,8 +207,10 @@ async function handleAction(
                 { count: "exact" })
         .eq("trang_thai_hd", "Active");
 
-      if (perm.filterMien) payload.mien = perm.filterMien;
+      // Miền ngoài phạm vi bị bỏ qua, quay về toàn bộ miền được phép.
+      if (perm.filterMien && payload.mien && !perm.filterMien.includes(payload.mien)) payload.mien = "";
       if (payload.mien)        q = q.eq("mien", payload.mien);
+      else if (perm.filterMien) q = q.in("mien", perm.filterMien);
       if (payload.loai_vi_tri) q = q.eq("loai_vi_tri", payload.loai_vi_tri);
       const search = sanitizeSearch(payload.search ?? "");
       if (search) {
@@ -304,10 +311,10 @@ async function handleAction(
       }
 
       // Áp dụng miền filter cho KPI
-      const effMien = perm.filterMien || payload.mien || null;
+      const reqMien = payload.mien && (!perm.filterMien || perm.filterMien.includes(payload.mien)) ? payload.mien : null;
       let mienFiltered = filtered;
-      if (effMien)
-        mienFiltered = mienFiltered.filter((r: any) => r.mien === effMien);
+      if (reqMien) mienFiltered = mienFiltered.filter((r: any) => r.mien === reqMien);
+      else if (perm.filterMien) mienFiltered = mienFiltered.filter((r: any) => perm.filterMien!.includes(r.mien));
 
       const sl = mienFiltered.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
       const gia_tri = mienFiltered.reduce((s: number, r: any) =>
@@ -381,7 +388,7 @@ async function handleAction(
           const tsRes = await admin.schema("app_ccdc").from("tai_san")
             .select("id, mien").in("id", tsIds);
           const mienSet = new Set(
-            (tsRes.data ?? []).filter((t: any) => t.mien === perm.filterMien).map((t: any) => t.id));
+            (tsRes.data ?? []).filter((t: any) => perm.filterMien!.includes(t.mien)).map((t: any) => t.id));
           enriched = enriched.filter((r: any) => mienSet.has(r.tai_san_id));
         }
       }
@@ -557,7 +564,7 @@ async function handleAction(
       let tsQ = admin.schema("app_ccdc").from("tai_san")
         .select("id, ma_bravo, so_luong, nguyen_gia, mien, loai_vi_tri, pic, trang_thai_hd")
         .eq("trang_thai_hd", "Active");
-      if (perm.filterMien) tsQ = tsQ.eq("mien", perm.filterMien);
+      if (perm.filterMien) tsQ = tsQ.in("mien", perm.filterMien);
 
       let budgetQ = admin.schema("app_ccdc").from("v_budget_canh_bao")
         .select("*").eq("fy", fy);
