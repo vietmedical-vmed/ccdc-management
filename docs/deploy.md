@@ -40,6 +40,17 @@ supabase functions deploy ccdc-login --no-verify-jwt --project-ref nrfxymnfmjhbs
 supabase functions deploy ccdc-api   --no-verify-jwt --project-ref nrfxymnfmjhbsgpipvkb
 ```
 
+## Snapshot ký gửi
+
+Mô hình báo cáo theo kỳ: mỗi tháng upload file Excel ký gửi của 1 nhóm SP ở màn **Ký gửi**. Upload thay thế toàn bộ snapshot cùng nhóm SP × tháng (chạy trong 1 transaction qua `app_ccdc.fn_snapshot_replace`).
+
+Triển khai lần đầu:
+
+1. Chạy `sql/migrate_snapshot_ky_gui.sql` trên SQL Editor.
+2. Redeploy `ccdc-api` (thêm action `snapshot_upload`, `snapshot_list`, `snapshot_items`, `snapshot_diff`, `ky_gui_dashboard`).
+
+Miền của mỗi dòng lấy từ `shared.dm_khach_hang.area` theo mã BV ("Code KH") tại lúc upload (view `app_ccdc.v_bv_mien`). Mã BV thiếu hoặc không có trong danh mục → miền rỗng; màn upload liệt kê các BV này sau khi lưu.
+
 ## Secret
 
 `TOKEN_SECRET` là secret chung cho cả Supabase project (đã set từ khi triển khai sale-target/order/kpi). Nếu deploy sang project khác, chạy:

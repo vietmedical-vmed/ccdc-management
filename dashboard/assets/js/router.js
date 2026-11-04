@@ -1,4 +1,4 @@
-// Hash router tối giản: #/dashboard, #/dm-vat-tu, #/giao-dich, #/tai-san, #/ngan-sach
+// Hash router tối giản: #/dashboard, #/ky-gui, #/dm-vat-tu, #/giao-dich, #/tai-san, #/ngan-sach
 // Đăng ký screen: CCDC_ROUTER.register(path, component). Bootstrap gọi useRoute() để lấy path hiện tại.
 (function () {
   const { useState, useEffect } = React;

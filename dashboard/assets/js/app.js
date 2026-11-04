@@ -8,9 +8,8 @@
 
   const NAV = [
     { path: "/dashboard",  label: "Tổng quan" },
-    { path: "/giao-dich",  label: "Giao dịch" },
+    { path: "/ky-gui",     label: "Ký gửi" },
     { path: "/tai-san",    label: "Tài sản" },
-    { path: "/ngan-sach",  label: "Ngân sách" },
   ];
 
   const initials = (u) => {

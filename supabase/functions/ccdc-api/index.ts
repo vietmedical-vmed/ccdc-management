@@ -116,6 +116,86 @@ function sanitizeSearch(s: string): string {
   return String(s ?? "").replace(/[,()\\%]/g, " ").trim();
 }
 
+// PostgREST cắt mỗi response ở max_rows (mặc định 1000) → đọc theo trang. build() phải có order ổn định.
+async function fetchAll(build: (from: number, to: number) => any): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
+const SNAP_ITEM_COLS = "id, ma_bv, ten_bv, ma_bravo, ma_ncc, ten_ccdc, serial, dvt, so_luong, ngay_ky_gui, ktv_phu_trach, note, mien";
+
+function fetchSnapshotItems(admin: SupabaseClient, snapshotIds: number[], filterMien: string[] | null) {
+  return fetchAll((from, to) => {
+    let q = admin.schema("app_ccdc").from("snapshot_items")
+      .select("snapshot_id, " + SNAP_ITEM_COLS).in("snapshot_id", snapshotIds);
+    if (filterMien) q = q.in("mien", filterMien);
+    return q.order("id").range(from, to);
+  });
+}
+
+// So 2 snapshot cùng nhóm SP:
+//   có serial → định danh (ma_bravo, serial); không mã Bravo (bộ CCDC) → định danh theo tên bộ;
+//   có mã Bravo, không serial → so SL theo (ma_bravo × BV).
+function computeDiff(oldRows: any[], newRows: any[]) {
+  const norm = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const bvKey = (r: any) => norm(r.ma_bv || r.ten_bv);
+  const identity = (r: any) =>
+    r.serial ? `S|${norm(r.ma_bravo)}|${norm(r.serial)}`
+    : !r.ma_bravo ? `N|${norm(r.ten_ccdc)}`
+    : null;
+
+  const index = (rows: any[]) => {
+    const byId = new Map<string, any[]>();
+    const byQty = new Map<string, { row: any; sl: number }>();
+    for (const r of rows) {
+      const k = identity(r);
+      if (k) {
+        if (!byId.has(k)) byId.set(k, []);
+        byId.get(k)!.push(r);
+      } else {
+        const qk = `${norm(r.ma_bravo)}|${bvKey(r)}`;
+        const cur = byQty.get(qk);
+        if (cur) cur.sl += Number(r.so_luong ?? 0);
+        else byQty.set(qk, { row: r, sl: Number(r.so_luong ?? 0) });
+      }
+    }
+    return { byId, byQty };
+  };
+  const A = index(oldRows), B = index(newRows);
+
+  const added: any[] = [], removed: any[] = [], moved: any[] = [];
+  for (const k of new Set([...A.byId.keys(), ...B.byId.keys()])) {
+    const olds = A.byId.get(k) ?? [], news = B.byId.get(k) ?? [];
+    for (let i = 0; i < Math.max(olds.length, news.length); i++) {
+      const o = olds[i], nw = news[i];
+      if (o && !nw) removed.push(o);
+      else if (!o && nw) added.push(nw);
+      else if (bvKey(o) !== bvKey(nw))
+        moved.push({ ...nw, tu_ma_bv: o.ma_bv, tu_ten_bv: o.ten_bv, tu_ktv: o.ktv_phu_trach, tu_mien: o.mien });
+    }
+  }
+  for (const k of new Set([...A.byQty.keys(), ...B.byQty.keys()])) {
+    const o = A.byQty.get(k), nw = B.byQty.get(k);
+    const d = (nw?.sl ?? 0) - (o?.sl ?? 0);
+    if (d > 0) added.push({ ...nw!.row, so_luong: d });
+    else if (d < 0) removed.push({ ...o!.row, so_luong: -d });
+  }
+  return { added, removed, moved };
+}
+
+const sumSl = (rows: any[]) => rows.reduce((s: number, r: any) => s + Number(r.so_luong ?? 0), 0);
+
+function fyOf(d: Date) {
+  const m = d.getUTCMonth() + 1;
+  return m >= 4 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+}
+
 // ─── Action dispatch ─────────────────────────────────────────────────────
 async function handleAction(
   action: string,
@@ -927,6 +1007,248 @@ async function handleAction(
       }
 
       return { ok: false, error: "unsupported_loai" };
+    }
+
+    // ── Snapshot ký gửi ────────────────────────────────────────────────
+    // Full replace 1 snapshot (nhóm SP × tháng). params: { nhom_san_pham, ky_cap_nhat, nguon_file?, ghi_chu?, items[] }
+    case "snapshot_upload": {
+      if (!perm.canWrite) return { ok: false, error: "forbidden" };
+      const nhom = String(payload.nhom_san_pham ?? "").trim();
+      const ky = String(payload.ky_cap_nhat ?? "").slice(0, 10);
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      if (!nhom) return { ok: false, error: "missing_nhom_san_pham" };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ky)) return { ok: false, error: "invalid_ky_cap_nhat" };
+      if (!items.length) return { ok: false, error: "no_items" };
+      if (items.length > 10000) return { ok: false, error: "too_many_items" };
+
+      const app = admin.schema("app_ccdc");
+      const { data: snapId, error } = await app.rpc("fn_snapshot_replace", {
+        p_nhom: nhom,
+        p_ky: ky,
+        p_nguon_file: payload.nguon_file ? String(payload.nguon_file) : null,
+        p_ghi_chu: payload.ghi_chu ? String(payload.ghi_chu) : null,
+        p_created_by: session.username,
+        p_items: items,
+      });
+      if (error) throw new Error(error.message);
+
+      // Mã BV không có (hoặc thiếu area) trong shared.dm_khach_hang → không lọc được theo miền
+      const { data: unmapped } = await app.from("snapshot_items")
+        .select("ma_bv, ten_bv").eq("snapshot_id", snapId).is("mien", null);
+      const bvChuaMap = new Map<string, string>();
+      for (const r of (unmapped ?? [])) {
+        const k = r.ma_bv || "(không mã)";
+        if (!bvChuaMap.has(k)) bvChuaMap.set(k, r.ten_bv || "");
+      }
+      return {
+        ok: true, snapshot_id: snapId,
+        bv_chua_map: [...bvChuaMap.entries()].map(([ma_bv, ten_bv]) => ({ ma_bv, ten_bv })),
+      };
+    }
+
+    // params: { nhom_san_pham?, fiscal_year? } → snapshot headers, mới nhất trước
+    case "snapshot_list": {
+      let q = admin.schema("app_ccdc").from("snapshots")
+        .select("id, nhom_san_pham, ky_cap_nhat, fiscal_year, nguon_file, ghi_chu, tong_sl, tong_dong, created_at, created_by")
+        .order("ky_cap_nhat", { ascending: false })
+        .order("nhom_san_pham");
+      if (payload.nhom_san_pham) q = q.eq("nhom_san_pham", payload.nhom_san_pham);
+      if (payload.fiscal_year)   q = q.eq("fiscal_year", Number(payload.fiscal_year));
+      if (perm.filterNhomSP?.length) q = q.in("nhom_san_pham", perm.filterNhomSP);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return { ok: true, rows: data ?? [] };
+    }
+
+    // params: { snapshot_id, search? }
+    case "snapshot_items": {
+      const id = Number(payload.snapshot_id);
+      if (!id) return { ok: false, error: "missing_snapshot_id" };
+      const app = admin.schema("app_ccdc");
+      const { data: snap } = await app.from("snapshots").select("nhom_san_pham").eq("id", id).maybeSingle();
+      if (!snap) return { ok: false, error: "snapshot_not_found" };
+      if (perm.filterNhomSP?.length && !perm.filterNhomSP.includes(snap.nhom_san_pham))
+        return { ok: false, error: "forbidden" };
+
+      const search = sanitizeSearch(payload.search ?? "").replace(/"/g, "");
+      const rows = await fetchAll((from, to) => {
+        let q = app.from("snapshot_items").select(SNAP_ITEM_COLS).eq("snapshot_id", id);
+        if (perm.filterMien) q = q.in("mien", perm.filterMien);
+        if (search) {
+          q = q.or(["ma_bv", "ten_bv", "ma_bravo", "ma_ncc", "ten_ccdc", "serial", "ktv_phu_trach"]
+            .map((c) => `${c}.ilike.*${search}*`).join(","));
+        }
+        return q.order("ten_bv").order("ma_bravo").order("id").range(from, to);
+      });
+      return { ok: true, rows };
+    }
+
+    // params: { snapshot_id_old, snapshot_id_new } → { added[], removed[], moved[] }
+    case "snapshot_diff": {
+      const idOld = Number(payload.snapshot_id_old), idNew = Number(payload.snapshot_id_new);
+      if (!idOld || !idNew) return { ok: false, error: "missing_snapshot_id" };
+      const app = admin.schema("app_ccdc");
+      const { data: snaps, error: eS } = await app.from("snapshots")
+        .select("id, nhom_san_pham").in("id", [idOld, idNew]);
+      if (eS) throw new Error(eS.message);
+      if ((snaps ?? []).length !== (idOld === idNew ? 1 : 2)) return { ok: false, error: "snapshot_not_found" };
+      if (new Set(snaps!.map((s: any) => s.nhom_san_pham)).size > 1)
+        return { ok: false, error: "khac_nhom_san_pham" };
+      if (perm.filterNhomSP?.length && !perm.filterNhomSP.includes(snaps![0].nhom_san_pham))
+        return { ok: false, error: "forbidden" };
+
+      // Đọc đủ cả 2 kỳ rồi mới lọc miền, để chiếc chuyển miền vẫn được nhận là "chuyển"
+      const items = await fetchSnapshotItems(admin, [idOld, idNew], null);
+      const { added, removed, moved } = computeDiff(
+        items.filter((r) => r.snapshot_id === idOld),
+        items.filter((r) => r.snapshot_id === idNew),
+      );
+      const inScope = (r: any) => !perm.filterMien
+        || perm.filterMien.includes(r.mien) || perm.filterMien.includes(r.tu_mien);
+      const a = added.filter(inScope), rm = removed.filter(inScope), mv = moved.filter(inScope);
+      return {
+        ok: true, added: a, removed: rm, moved: mv,
+        summary: { sl_added: sumSl(a), sl_removed: sumSl(rm), sl_moved: sumSl(mv) },
+      };
+    }
+
+    // ── Dashboard ký gửi theo FY (T4–T3) ───────────────────────────────
+    // Tháng M của mỗi nhóm SP = snapshot mới nhất có kỳ ≤ M (tháng chưa upload giữ số kỳ trước).
+    // params: { fiscal_year? }
+    case "ky_gui_dashboard": {
+      const now = new Date();
+      const fy = Number(payload.fiscal_year) || fyOf(now);
+      const app = admin.schema("app_ccdc");
+
+      let qS = app.from("snapshots")
+        .select("id, nhom_san_pham, ky_cap_nhat, fiscal_year, tong_sl, created_at, created_by")
+        .order("ky_cap_nhat");
+      if (perm.filterNhomSP?.length) qS = qS.in("nhom_san_pham", perm.filterNhomSP);
+      const { data: snapsRaw, error: eS } = await qS;
+      if (eS) throw new Error(eS.message);
+      const snaps = snapsRaw ?? [];
+      const fy_options = [...new Set([fyOf(now), ...snaps.map((s: any) => Number(s.fiscal_year))])].sort((a, b) => b - a);
+
+      const curMonth = now.toISOString().slice(0, 7);
+      const months: string[] = [];
+      for (let i = 0; i < 12; i++) {
+        const mm = ((3 + i) % 12) + 1;
+        months.push(`${mm >= 4 ? fy : fy + 1}-${String(mm).padStart(2, "0")}`);
+      }
+      const pastMonths = months.filter((m) => m <= curMonth);
+      const refMonth = pastMonths[pastMonths.length - 1] ?? null;
+
+      const byNhom = new Map<string, any[]>();
+      for (const s of snaps) {
+        if (!byNhom.has(s.nhom_san_pham)) byNhom.set(s.nhom_san_pham, []);
+        byNhom.get(s.nhom_san_pham)!.push(s);
+      }
+      const nhoms = [...byNhom.keys()].sort();
+      const asOf = (nhom: string, m: string) => {
+        let hit: any = null;
+        for (const s of byNhom.get(nhom)!) if (String(s.ky_cap_nhat).slice(0, 7) <= m) hit = s;
+        return hit;
+      };
+
+      // SL mỗi snapshot theo miền được phép
+      const trendIds = new Set<number>();
+      for (const m of pastMonths) for (const n of nhoms) { const s = asOf(n, m); if (s) trendIds.add(s.id); }
+      const mienRows = trendIds.size
+        ? await fetchAll((from, to) => app.from("v_snapshot_mien_sl")
+            .select("snapshot_id, mien, sl").in("snapshot_id", [...trendIds])
+            .order("snapshot_id").order("mien").range(from, to))
+        : [];
+      const slBySnap = new Map<number, number>();
+      for (const r of mienRows) {
+        if (perm.filterMien && !perm.filterMien.includes(r.mien)) continue;
+        slBySnap.set(r.snapshot_id, (slBySnap.get(r.snapshot_id) ?? 0) + Number(r.sl ?? 0));
+      }
+
+      const trend = months.map((m) => {
+        if (m > curMonth) return { ky: m, sl: null, chi_tiet: [] };
+        const chi_tiet = nhoms.map((n) => {
+          const s = asOf(n, m);
+          return s && {
+            nhom_san_pham: n, ky_snapshot: s.ky_cap_nhat, sl: slBySnap.get(s.id) ?? 0,
+            cap_nhat_trong_thang: String(s.ky_cap_nhat).slice(0, 7) === m,
+          };
+        }).filter(Boolean) as any[];
+        return { ky: m, sl: chi_tiet.length ? chi_tiet.reduce((t, c) => t + c.sl, 0) : null, chi_tiet };
+      });
+
+      // Snapshot hiện hành của FY (tại refMonth) + kỳ liền trước để tính thay đổi
+      const current: { nhom: string; snap: any; prev: any }[] = [];
+      if (refMonth) for (const n of nhoms) {
+        const s = asOf(n, refMonth);
+        if (!s) continue;
+        const list = byNhom.get(n)!;
+        current.push({ nhom: n, snap: s, prev: list[list.indexOf(s) - 1] ?? null });
+      }
+      const itemIds = current.flatMap((c) => c.prev ? [c.snap.id, c.prev.id] : [c.snap.id]);
+      const items = itemIds.length ? await fetchSnapshotItems(admin, itemIds, null) : [];
+      const inMien = (r: any) => !perm.filterMien || perm.filterMien.includes(r.mien);
+      const norm = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+      const curItems: any[] = [];
+      const nhom_table = current.map(({ nhom, snap, prev }) => {
+        const cur = items.filter((r) => r.snapshot_id === snap.id);
+        const visible = cur.filter(inMien);
+        curItems.push(...visible.map((r) => ({ ...r, nhom_san_pham: nhom })));
+        const d = prev ? computeDiff(items.filter((r) => r.snapshot_id === prev.id), cur) : null;
+        const inScope = (r: any) => inMien(r) || (!!perm.filterMien && perm.filterMien.includes(r.tu_mien));
+        return {
+          nhom_san_pham: nhom, snapshot_id: snap.id, ky_cap_nhat: snap.ky_cap_nhat,
+          created_at: snap.created_at, created_by: snap.created_by,
+          sl: sumSl(visible), so_dong: visible.length,
+          so_bv: new Set(visible.map((r) => norm(r.ma_bv || r.ten_bv))).size,
+          ky_truoc: prev?.ky_cap_nhat ?? null,
+          sl_them: d ? sumSl(d.added.filter(inScope)) : null,
+          sl_thu_hoi: d ? sumSl(d.removed.filter(inScope)) : null,
+          so_chuyen: d ? d.moved.filter(inScope).length : null,
+          chua_cap_nhat_thang: String(snap.ky_cap_nhat).slice(0, 7) < refMonth!,
+        };
+      });
+
+      type BvAgg = { ma_bv: string | null; ten_bv: string; sl: number; so_dong: number; nhom: Set<string> };
+      const mienMap = new Map<string, { sl: number; bvs: Map<string, BvAgg> }>();
+      const ktvMap = new Map<string, { ktv: string; sl: number; bvs: Set<string> }>();
+      for (const r of curItems) {
+        const mk = r.mien || "Chưa xác định miền";
+        if (!mienMap.has(mk)) mienMap.set(mk, { sl: 0, bvs: new Map() });
+        const M = mienMap.get(mk)!;
+        const sl = Number(r.so_luong ?? 0);
+        M.sl += sl;
+        const bk = norm(r.ma_bv || r.ten_bv);
+        if (!M.bvs.has(bk)) M.bvs.set(bk, { ma_bv: r.ma_bv, ten_bv: r.ten_bv || r.ma_bv || "—", sl: 0, so_dong: 0, nhom: new Set() });
+        const B = M.bvs.get(bk)!;
+        B.sl += sl; B.so_dong++; B.nhom.add(r.nhom_san_pham);
+
+        const kk = norm(r.ktv_phu_trach) || "";
+        if (!ktvMap.has(kk)) ktvMap.set(kk, { ktv: r.ktv_phu_trach || "(chưa gán KTV)", sl: 0, bvs: new Set() });
+        const K = ktvMap.get(kk)!;
+        K.sl += sl; K.bvs.add(bk);
+      }
+      const ton_by_mien = [...mienMap.entries()].map(([mien, M]) => ({
+        mien, sl: M.sl,
+        children: [...M.bvs.values()].map((b) => ({ ...b, nhom: [...b.nhom].sort() })).sort((a, b) => b.sl - a.sl),
+      })).sort((a, b) => b.sl - a.sl);
+      const theo_ktv = [...ktvMap.values()]
+        .map((k) => ({ ktv: k.ktv, sl: k.sl, so_bv: k.bvs.size }))
+        .sort((a, b) => b.sl - a.sl);
+
+      const sum = (k: string) => nhom_table.every((n: any) => n[k] == null) ? null
+        : nhom_table.reduce((t: number, n: any) => t + Number(n[k] ?? 0), 0);
+      return {
+        ok: true, fy, fy_options, ref_month: refMonth,
+        kpi: {
+          tong_sl: sumSl(curItems),
+          so_bv: new Set(curItems.map((r) => norm(r.ma_bv || r.ten_bv))).size,
+          so_ktv: new Set(curItems.map((r) => norm(r.ktv_phu_trach)).filter(Boolean)).size,
+          so_nhom: nhom_table.length,
+          sl_them: sum("sl_them"), sl_thu_hoi: sum("sl_thu_hoi"), so_chuyen: sum("so_chuyen"),
+        },
+        trend, nhom_san_pham: nhom_table, ton_by_mien, theo_ktv,
+      };
     }
 
     default:
