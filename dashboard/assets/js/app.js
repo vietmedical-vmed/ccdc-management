@@ -1,98 +1,124 @@
 // Bootstrap: check token → render LoginGate hoặc Shell với router.
+// Shell cùng bố cục bidding-and-contract: header (module + user + Reload/Đăng xuất), hàng "Lọc", tab gạch chân.
 (function () {
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useMemo } = React;
   const h = React.createElement;
   const { LoginGate } = window.CCDC_AUTH;
   const { api, getToken, getUser, clearToken } = window.CCDC_API;
   const R = window.CCDC_ROUTER;
+  const { I, ReloadContext, FilterSlotContext } = window.CCDC_UI;
 
-  const NAV = [
-    { path: "/dashboard",  label: "Tổng quan" },
-    { path: "/ky-gui",     label: "Ký gửi" },
-    { path: "/phan-bo",    label: "Phân bổ" },
-    { path: "/tai-san",    label: "Tài sản" },
-  ];
+  const MODULES = {
+    kygui: {
+      title: "KÝ GỬI CCDC & THIẾT BỊ",
+      label: "Ký gửi",
+      keys: window.CCDC_KG.KEYS,
+      tabs: [
+        { path: "/dashboard", label: "Tổng quan" },
+        { path: "/ky-gui", label: "Chi tiết theo kỳ" },
+        { path: "/phan-bo", label: "Phân bổ theo quota" },
+      ],
+    },
+    taisan: {
+      title: "TÀI SẢN CCDC & THIẾT BỊ",
+      label: "Tài sản",
+      keys: [],
+      tabs: [{ path: "/tai-san", label: "Danh sách tài sản" }],
+    },
+  };
+  const moduleOf = (path) =>
+    Object.keys(MODULES).find((id) => MODULES[id].tabs.some((t) => t.path === path)) || "kygui";
+
+  const ROLE_BADGE = {
+    admin:   { label: "Admin",   cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    manager: { label: "Manager", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    pm:      { label: "PM",      cls: "bg-violet-50 text-violet-700 border-violet-200" },
+    am:      { label: "AM",      cls: "bg-teal-50 text-teal-700 border-teal-200" },
+  };
 
   const initials = (u) => {
     const src = (u.ho_ten || u.username || "").trim();
     if (!src) return "CT";
     const parts = src.split(/\s+/);
-    const s = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 2);
-    return s.toUpperCase();
+    return (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : src.slice(0, 2)).toUpperCase();
   };
 
   function Shell({ user, onLogout }) {
     const path = R.useRoute();
+    const query = R.useQuery();
     const Screen = R.get(path);
-    const subtitle = user.ho_ten || user.username || "—";
-    const ROLE_BADGE = {
-      admin:   { label: "Admin",   cls: "bg-amber-50 text-amber-700 border-amber-200" },
-      manager: { label: "Manager", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-      pm:      { label: "PM",      cls: "bg-violet-50 text-violet-700 border-violet-200" },
-      am:      { label: "AM",      cls: "bg-teal-50 text-teal-700 border-teal-200" },
-    };
+    const modId = moduleOf(path);
+    const mod = MODULES[modId];
     const badge = ROLE_BADGE[user.role];
 
-    return h("div", { className: "min-h-screen bg-slate-50" },
-      h("header", { className: "bg-white border-b border-slate-200" },
-        h("div", { className: "w-full px-4 md:px-6" },
-          // Hàng trên: avatar + tiêu đề · credit góc phải + nút
-          h("div", { className: "flex items-start justify-between pt-3 gap-4" },
-            h("div", { className: "flex items-center gap-3" },
-              h("div", {
-                className: "w-11 h-11 rounded-full bg-blue-500 text-white grid place-items-center font-bold text-sm shrink-0",
-              }, initials(user)),
-              h("div", { className: "leading-tight" },
-                h("div", { className: "font-bold text-slate-900 text-base md:text-lg" }, "QUẢN LÝ CCDC & THIẾT BỊ"),
-                h("div", { className: "flex items-center gap-2 mt-0.5" },
-                  h("span", { className: "text-xs text-slate-500" }, subtitle),
-                  badge && h("span", { className: "px-1.5 py-0.5 rounded text-[10px] font-semibold border " + badge.cls }, badge.label),
-                ),
+    const [nonce, setNonce] = useState(0);
+    const [slotEl, setSlotEl] = useState(null);
+    const [filterCount, setFilterCount] = useState(0);
+    const slot = useMemo(() => ({
+      el: slotEl,
+      mount: () => setFilterCount((n) => n + 1),
+      unmount: () => setFilterCount((n) => n - 1),
+    }), [slotEl]);
+
+    const keep = new URLSearchParams();
+    for (const k of mod.keys) query.getAll(k).forEach((v) => keep.append(k, v));
+
+    const reload = () => { window.CCDC_KG.invalidateSnapshots(); setNonce((n) => n + 1); };
+
+    return h(ReloadContext.Provider, { value: nonce },
+      h(FilterSlotContext.Provider, { value: slot },
+        h("div", { className: "min-h-screen" },
+          h("header", { className: "sticky top-0 z-30 border-b border-slate-200 bg-white" },
+            h("div", { className: "flex flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-6" },
+              h("div", { className: "flex flex-wrap items-center gap-x-6 gap-y-2" },
+                h("div", { className: "flex items-center gap-3" },
+                  h("div", { className: "grid h-11 w-11 shrink-0 place-items-center rounded-full bg-blue-500 text-sm font-bold text-white" }, initials(user)),
+                  h("div", { className: "leading-tight" },
+                    h("div", { className: "text-base font-bold text-slate-900 md:text-lg" }, mod.title),
+                    h("div", { className: "mt-0.5 flex items-center gap-2 text-xs text-slate-500" },
+                      user.ho_ten || user.username,
+                      badge && h("span", { className: "rounded border px-1.5 py-0.5 text-[10px] font-semibold " + badge.cls }, badge.label)))),
+                h("div", { className: "flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5" },
+                  Object.keys(MODULES).map((id) => h("a", {
+                    key: id, href: R.href(MODULES[id].tabs[0].path),
+                    className: "rounded px-3 py-1 text-[13px] " + (id === modId ? "bg-white font-semibold text-blue-700 shadow-sm" : "text-slate-600 hover:text-slate-900"),
+                  }, MODULES[id].label))),
               ),
+              h("div", { className: "flex flex-col items-end gap-2" },
+                h("div", { className: "text-right text-[9px] italic text-slate-400" },
+                  "Designed and developed by ", h("span", { className: "font-semibold not-italic text-slate-500" }, "Do Hoang Giang")),
+                h("div", { className: "flex items-center gap-2" },
+                  h("button", { type: "button", onClick: reload,
+                    className: "flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-blue-700" },
+                    h(I.RefreshCw, { size: 14 }), "Reload"),
+                  h("button", { type: "button", onClick: onLogout,
+                    className: "flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-red-700" },
+                    h(I.LogOut, { size: 14 }), "Đăng xuất"))),
             ),
-            h("div", { className: "flex flex-col items-end gap-2" },
-              h("div", { className: "text-[9px] text-slate-400 italic text-right" },
-                "Designed and developed by ",
-                h("span", { className: "font-semibold text-slate-500 not-italic" }, "Do Hoang Giang"),
-              ),
-              h("div", { className: "flex items-center gap-2" },
-                h("button", {
-                  onClick: () => window.location.reload(),
-                  className: "flex items-center gap-1.5 text-xs text-white bg-blue-500 hover:bg-blue-600 px-2.5 py-1.5 rounded-md",
-                }, h("span", null, "⟳"), "Reload"),
-                h("button", {
-                  onClick: onLogout,
-                  className: "flex items-center gap-1.5 text-xs text-white bg-red-500 hover:bg-red-600 px-2.5 py-1.5 rounded-md",
-                }, h("span", null, "⎋"), "Đăng xuất"),
-              ),
-            ),
+
+            h("div", { className: "flex flex-wrap items-center gap-2.5 border-t border-slate-100 px-4 py-2 md:px-6" + (filterCount > 0 ? "" : " hidden") },
+              h("span", { className: "pl-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500" }, "Lọc"),
+              h("div", { ref: setSlotEl, className: "contents" })),
+
+            h("nav", { className: "flex items-center gap-1 overflow-x-auto border-t border-slate-100 px-4 md:px-6" },
+              mod.tabs.map((t) => h("a", {
+                key: t.path, href: R.href(t.path, keep),
+                className: "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors " +
+                  (t.path === path ? "border-blue-500 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"),
+              }, t.label))),
           ),
-          // Hàng dưới: tab gạch chân
-          h("nav", { className: "flex items-center gap-5 md:gap-6 mt-3 overflow-x-auto overflow-y-hidden" },
-            NAV.map((it) => h("button", {
-              key: it.path,
-              onClick: () => R.navigate(it.path),
-              className: "relative px-0.5 pb-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors " +
-                (path === it.path
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-slate-600 hover:text-slate-900"),
-            }, it.label)),
-          ),
-        ),
-      ),
-      h("main", { className: "w-full" },
-        Screen
-          ? h(Screen, { user })
-          : h("div", { className: "p-6 text-slate-500 text-sm" }, "Màn hình chưa được xây: ", path),
-      ),
-    );
+
+          h("main", { className: "px-4 py-4 md:px-6" },
+            Screen
+              ? h(Screen, { key: path, user })
+              : h("div", { className: "text-[13px] text-slate-500" }, "Màn hình chưa được xây: ", path)),
+        )));
   }
 
   function App() {
     const [user, setUser] = useState(getUser());
     const [checking, setChecking] = useState(!!getToken());
 
-    // Verify token hiện có bằng whoami khi khởi động (nếu có token nhưng chưa có user)
     useEffect(() => {
       if (!getToken()) { setChecking(false); return; }
       let alive = true;
@@ -134,7 +160,6 @@
       } catch (_) { /* bỏ qua nếu API không hỗ trợ */ }
     }, []);
 
-    // Ẩn boot spinner khi App đã mount
     useEffect(() => {
       const boot = document.getElementById("boot");
       if (boot) boot.style.display = "none";

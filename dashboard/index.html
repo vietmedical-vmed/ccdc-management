@@ -32,6 +32,11 @@
   #boot .err { color: #fa383e; font-size: 12px; max-width: 400px; margin-top: 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   input, button, select, textarea { font-family: inherit; }
+  body { color: #18191a; }
+  .spinner { width: 32px; height: 32px; border: 3px solid #dadde1; border-top-color: #1877f2; border-radius: 50%; animation: spin .8s linear infinite; }
+  .scroll-shadow::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scroll-shadow::-webkit-scrollbar-thumb { background: #ccd0d5; border-radius: 4px; }
+  .scroll-shadow::-webkit-scrollbar-track { background: transparent; }
 </style>
 </head>
 <body>
@@ -53,18 +58,21 @@
   }, 5000);
 </script>
 
-<!-- App modules (thứ tự quan trọng: config → api → components → screens → app) -->
-<script src="assets/js/config.js"></script>
-<script src="assets/js/api.js"></script>
-<script src="assets/js/auth.js"></script>
-<script src="assets/js/router.js"></script>
-<script src="assets/js/screens/dashboard.js"></script>
-<script src="assets/js/screens/tai-san.js"></script>
-<script src="assets/js/screens/giao-dich.js"></script>
-<script src="assets/js/screens/ky-gui.js"></script>
-<script src="assets/js/screens/phan-bo.js"></script>
-<script src="assets/js/screens/ngan-sach.js"></script>
-<script src="assets/js/app.js"></script>
+<!-- App modules (thứ tự quan trọng: config → api → components → screens → app).
+     ?v= đổi mỗi lần deploy để trình duyệt không trộn file cũ (cache) với file mới. -->
+<script src="assets/js/config.js?v=20261104"></script>
+<script src="assets/js/api.js?v=20261104"></script>
+<script src="assets/js/auth.js?v=20261104"></script>
+<script src="assets/js/router.js?v=20261104"></script>
+<script src="assets/js/ui.js?v=20261104"></script>
+<script src="assets/js/ky-gui-filters.js?v=20261104"></script>
+<script src="assets/js/screens/dashboard.js?v=20261104"></script>
+<script src="assets/js/screens/tai-san.js?v=20261104"></script>
+<script src="assets/js/screens/giao-dich.js?v=20261104"></script>
+<script src="assets/js/screens/ky-gui.js?v=20261104"></script>
+<script src="assets/js/screens/phan-bo.js?v=20261104"></script>
+<script src="assets/js/screens/ngan-sach.js?v=20261104"></script>
+<script src="assets/js/app.js?v=20261104"></script>
 
 </body>
 </html>

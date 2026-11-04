@@ -92,7 +92,7 @@ Sau đó mở http://localhost:5173.
      window.CCDC_ROUTER.register("/my-path", MyScreen);
    })();
    ```
-2. Thêm 1 dòng `<script src="assets/js/screens/<ten>.js"></script>` vào `dashboard/index.html`.
+2. Thêm 1 dòng `<script src="assets/js/screens/<ten>.js?v=..."></script>` vào `dashboard/index.html`. Mỗi lần sửa file JS, đổi giá trị `?v=` của mọi thẻ script để trình duyệt không trộn file cũ trong cache với file mới. Component dùng chung (StatCard, Panel, FilterSelect, Modal…) ở `assets/js/ui.js`; bộ lọc module Ký gửi ở `assets/js/ky-gui-filters.js`.
 3. Thêm mục vào mảng `NAV` trong `assets/js/app.js` nếu muốn hiện ở thanh nav.
 
 ## Thêm 1 action API mới

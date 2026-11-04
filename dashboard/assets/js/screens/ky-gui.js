@@ -1,14 +1,17 @@
-// Màn Ký gửi — snapshot theo kỳ: upload Excel (full replace nhóm SP × tháng), xem chi tiết, so sánh 2 kỳ.
+// Màn Chi tiết theo kỳ — snapshot ký gửi: upload Excel (full replace nhóm SP × tháng), xem chi tiết, so sánh 2 kỳ.
 (function () {
-  const { useState, useEffect, useCallback, useRef, useMemo } = React;
+  const { useState, useEffect, useRef, useMemo } = React;
   const h = React.createElement;
   const { api } = window.CCDC_API;
+  const R = window.CCDC_ROUTER;
+  const { useKgFilters, KgFilters, invalidateSnapshots } = window.CCDC_KG;
+  const UI = window.CCDC_UI;
+  const { fmtInt, fmtKy, fmtDate, fyOf, fyLabel, useReload, I, StatCard, Panel, Badge, Segmented, SearchInput,
+    LoadingBlock, RefreshingBar, ErrorBox, Empty, Modal, T, btn, input, fieldLabel } = UI;
 
-  const fmtInt = (n) => (n == null || n === "") ? "—" : Number(n).toLocaleString("vi-VN");
-  const fmtDate = (d) => !d ? "—" : String(d).slice(0, 10);
-  const fmtKy = (d) => { if (!d) return "—"; const [y, m] = String(d).split("-"); return "T" + Number(m) + "/" + y; };
   const pad2 = (n) => String(n).padStart(2, "0");
 
+  // ─── Đọc file Excel ký gửi ───────────────────────────────
   const normHeader = (s) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   const HEADER_ALIASES = {
     ma_bv:         ["code kh", "mã kh", "code_kh", "mã bv", "ma bv"],
@@ -106,10 +109,10 @@
     return { sheetName: best.name, items, fields: Object.keys(colMap), warnings };
   }
 
-  // ─── Upload Modal ─────────────────────────────────────────
-  function UploadModal({ existing, onClose, onUploaded }) {
+  // ─── Upload ──────────────────────────────────────────────
+  function UploadModal({ existing, defaultNhom, onClose, onUploaded }) {
     const [file, setFile] = useState(null);
-    const [nhomSP, setNhomSP] = useState("");
+    const [nhomSP, setNhomSP] = useState(defaultNhom || "");
     const [kyCapNhat, setKyCapNhat] = useState(guessKy(""));
     const [ghiChu, setGhiChu] = useState("");
     const [preview, setPreview] = useState(null);
@@ -120,7 +123,8 @@
 
     const pick = async (f) => {
       setFile(f); setError(""); setPreview(null); setResult(null);
-      setNhomSP((cur) => cur || guessNhomSP(f.name));
+      const g = guessNhomSP(f.name);
+      if (g) setNhomSP(g);
       setKyCapNhat(guessKy(f.name));
       try { setPreview(parseWorkbook(await f.arrayBuffer())); }
       catch (e) { setError(e.message || String(e)); }
@@ -137,197 +141,153 @@
           nhom_san_pham: nhomSP.trim(), ky_cap_nhat: kyCapNhat,
           nguon_file: file.name, ghi_chu: ghiChu || null, items: preview.items,
         });
-        onUploaded(res.snapshot_id);
+        onUploaded(nhomSP.trim(), kyCapNhat);
         if (res.bv_chua_map && res.bv_chua_map.length) setResult(res);
         else onClose();
       } catch (e) { setError(e.message || String(e)); }
       setBusy(false);
     };
 
-    const inputCls = "w-full px-2 py-1.5 text-sm border border-slate-300 rounded outline-none focus:border-blue-400";
-    const labelCls = "text-xs font-semibold text-slate-600 uppercase tracking-wide";
+    return h(Modal, { open: true, onClose, busy, width: 820, title: "Upload snapshot ký gửi", icon: h(I.Upload, { size: 16, className: "text-blue-600" }) },
+      result
+        ? h("div", { className: "space-y-3 px-4 py-4" },
+            h("div", { className: "flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700" },
+              h(I.Check, { size: 14 }), "Đã lưu snapshot " + nhomSP + " " + fmtKy(kyCapNhat) + "."),
+            h("div", { className: "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" },
+              h("div", { className: "mb-1 flex items-center gap-1.5 font-semibold" }, h(I.AlertTriangle, { size: 14 }),
+                result.bv_chua_map.length + " BV không xác định được miền (thiếu mã BV, hoặc chưa khai báo địa bàn cho nhóm SP này):"),
+              h("ul", { className: "max-h-48 list-disc space-y-0.5 overflow-y-auto pl-5 text-[12px]" },
+                result.bv_chua_map.map((b) => h("li", { key: b.ma_bv }, b.ma_bv + (b.ten_bv ? " — " + b.ten_bv : "")))),
+              h("div", { className: "mt-2 text-[12px]" }, "Các dòng này không hiện cho tài khoản bị giới hạn miền. Bổ sung mã BV trong file, hoặc khai báo địa bàn bên Kế hoạch kinh doanh, rồi upload lại kỳ này.")),
+            h("div", { className: "flex justify-end" }, h("button", { type: "button", onClick: onClose, className: btn.primary }, "Đóng")))
+        : h(React.Fragment, null,
+            h("div", { className: "max-h-[65vh] space-y-4 overflow-y-auto px-4 py-4" },
+              error && h(ErrorBox, null, error),
+              h("div", {
+                className: "cursor-pointer rounded-lg border-2 border-dashed border-slate-300 p-6 text-center hover:border-blue-400 hover:bg-blue-50/30",
+                onClick: () => fileRef.current && fileRef.current.click(),
+                onDragOver: (e) => e.preventDefault(),
+                onDrop: (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); },
+              },
+                h("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls,.xlsm", className: "hidden",
+                  onChange: (e) => { if (e.target.files[0]) pick(e.target.files[0]); e.target.value = ""; } }),
+                h(I.Upload, { size: 20, className: "mx-auto mb-1.5 text-slate-400" }),
+                file
+                  ? h("div", null,
+                      h("div", { className: "break-all text-[13px] font-semibold text-slate-800" }, file.name),
+                      h("div", { className: "mt-0.5 text-[11px] text-slate-400" }, (file.size / 1024).toFixed(0) + " KB · bấm để đổi file"))
+                  : h("div", null,
+                      h("div", { className: "text-[13px] text-slate-600" }, "Kéo thả file hoặc bấm để chọn"),
+                      h("div", { className: "mt-0.5 text-[11px] text-slate-400" }, ".xlsx / .xls / .xlsm"))),
 
-    return h("div", {
-      className: "fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto",
-      onClick: (e) => { if (e.target === e.currentTarget && !busy) onClose(); },
-    },
-      h("div", { className: "bg-white rounded-lg shadow-xl w-full max-w-3xl my-8" },
-        h("div", { className: "px-5 py-3 border-b border-slate-200 flex items-center justify-between" },
-          h("h2", { className: "text-base font-bold text-slate-900" }, "Upload snapshot ký gửi"),
-          h("button", { onClick: onClose, disabled: busy, className: "text-slate-400 hover:text-slate-700 text-xl leading-none" }, "×"),
-        ),
+              h("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2" },
+                h("label", null, h("span", { className: fieldLabel }, "Nhóm sản phẩm *"),
+                  h("input", { className: input, value: nhomSP, placeholder: "VD: NSK Arthrex", list: "kg-nhom-sp", onChange: (e) => setNhomSP(e.target.value) }),
+                  h("datalist", { id: "kg-nhom-sp" }, [...new Set(existing.map((s) => s.nhom_san_pham))].map((n) => h("option", { key: n, value: n })))),
+                h("label", null, h("span", { className: fieldLabel }, "Kỳ cập nhật (tháng)"),
+                  h("input", { type: "month", className: input, value: kyMonth, onChange: (e) => e.target.value && setKyCapNhat(e.target.value + "-01") }))),
+              h("label", { className: "block" }, h("span", { className: fieldLabel }, "Ghi chú"),
+                h("input", { className: input, value: ghiChu, placeholder: "Tuỳ chọn", onChange: (e) => setGhiChu(e.target.value) })),
 
-        result
-          ? h("div", { className: "px-5 py-4 space-y-3" },
-              h("div", { className: "bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-3 py-2 rounded" },
-                "Đã lưu snapshot " + nhomSP + " " + fmtKy(kyCapNhat) + "."),
-              h("div", { className: "bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded" },
-                h("div", { className: "font-semibold mb-1" }, result.bv_chua_map.length + " BV không xác định được miền (thiếu mã BV, hoặc chưa khai báo địa bàn cho nhóm SP này):"),
-                h("ul", { className: "list-disc pl-5 text-xs space-y-0.5 max-h-48 overflow-y-auto" },
-                  result.bv_chua_map.map((b) => h("li", { key: b.ma_bv }, b.ma_bv + (b.ten_bv ? " — " + b.ten_bv : "")))),
-                h("div", { className: "text-xs mt-2" }, "Các dòng này không hiện cho tài khoản bị giới hạn miền. Bổ sung mã BV trong file, hoặc khai báo địa bàn bên Kế hoạch kinh doanh, rồi upload lại kỳ này."),
-              ),
-              h("div", { className: "flex justify-end" },
-                h("button", { onClick: onClose, className: "px-4 py-1.5 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600" }, "Đóng")),
-            )
-          : h(React.Fragment, null,
-        h("div", { className: "px-5 py-4 space-y-4 max-h-[65vh] overflow-y-auto" },
-          error && h("div", { className: "bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded" }, "Lỗi: " + error),
+              willReplace && h("div", { className: "flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" },
+                h(I.AlertTriangle, { size: 14 }),
+                "Đã có snapshot " + willReplace.nhom_san_pham + " " + fmtKy(willReplace.ky_cap_nhat) + " (" + fmtInt(willReplace.tong_dong) + " dòng). Upload sẽ thay thế toàn bộ."),
 
-          h("div", {
-            className: "border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30",
-            onClick: () => fileRef.current && fileRef.current.click(),
-            onDragOver: (e) => e.preventDefault(),
-            onDrop: (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); },
-          },
-            h("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls,.xlsm", className: "hidden",
-              onChange: (e) => { if (e.target.files[0]) pick(e.target.files[0]); e.target.value = ""; } }),
-            file
-              ? h("div", null,
-                  h("div", { className: "text-sm font-semibold text-slate-800 break-all" }, file.name),
-                  h("div", { className: "text-xs text-slate-500 mt-1" }, (file.size / 1024).toFixed(0) + " KB · bấm để đổi file"))
-              : h("div", null,
-                  h("div", { className: "text-sm text-slate-500" }, "Kéo thả file hoặc bấm để chọn"),
-                  h("div", { className: "text-xs text-slate-400 mt-1" }, ".xlsx / .xls / .xlsm")),
-          ),
+              preview && preview.warnings.length > 0 && h("div", { className: "space-y-0.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800" },
+                h("div", { className: "font-semibold" }, "Cảnh báo dữ liệu (vẫn upload được):"),
+                preview.warnings.map((w, i) => h("div", { key: i }, "• " + w))),
 
-          h("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3" },
-            h("div", null,
-              h("div", { className: labelCls + " mb-1" }, "Nhóm sản phẩm *"),
-              h("input", { className: inputCls, value: nhomSP, placeholder: "VD: NSK Arthrex", list: "kg-nhom-sp",
-                onChange: (e) => setNhomSP(e.target.value) }),
-              h("datalist", { id: "kg-nhom-sp" },
-                [...new Set(existing.map((s) => s.nhom_san_pham))].map((n) => h("option", { key: n, value: n }))),
-            ),
-            h("div", null,
-              h("div", { className: labelCls + " mb-1" }, "Kỳ cập nhật (tháng)"),
-              h("input", { type: "month", className: inputCls, value: kyMonth,
-                onChange: (e) => e.target.value && setKyCapNhat(e.target.value + "-01") }),
-            ),
-          ),
-          h("div", null,
-            h("div", { className: labelCls + " mb-1" }, "Ghi chú"),
-            h("input", { className: inputCls, value: ghiChu, placeholder: "Tuỳ chọn", onChange: (e) => setGhiChu(e.target.value) }),
-          ),
-
-          willReplace && h("div", { className: "bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded" },
-            "Đã có snapshot " + willReplace.nhom_san_pham + " " + fmtKy(willReplace.ky_cap_nhat) +
-            " (" + fmtInt(willReplace.tong_dong) + " dòng). Upload sẽ thay thế toàn bộ."),
-
-          preview && preview.warnings.length > 0 && h("div", { className: "bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded space-y-0.5" },
-            h("div", { className: "font-semibold" }, "Cảnh báo dữ liệu (vẫn upload được):"),
-            preview.warnings.map((w, i) => h("div", { key: i }, "• " + w))),
-
-          preview && h("div", null,
-            h("div", { className: labelCls + " mb-1" },
-              "Xem trước: " + fmtInt(preview.items.length) + " dòng · SL " +
-              fmtInt(preview.items.reduce((s, i) => s + i.so_luong, 0)) + " · sheet " + preview.sheetName),
-            h("div", { className: "border border-slate-200 rounded overflow-auto max-h-60" },
-              h("table", { className: "w-full text-xs" },
-                h("thead", { className: "bg-slate-50 sticky top-0" },
-                  h("tr", null, ["Mã BV", "Tên BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "KTV"].map((c, i) =>
-                    h("th", { key: i, className: "px-2 py-1.5 text-left font-semibold text-slate-600 whitespace-nowrap" }, c)))),
-                h("tbody", null,
-                  preview.items.slice(0, 30).map((it, i) => h("tr", { key: i, className: "border-t border-slate-100" },
-                    h("td", { className: "px-2 py-1 font-mono text-slate-600 whitespace-nowrap" }, it.ma_bv || "—"),
-                    h("td", { className: "px-2 py-1 text-slate-700 max-w-[180px] truncate" }, it.ten_bv || "—"),
-                    h("td", { className: "px-2 py-1 font-mono text-slate-900 whitespace-nowrap" }, it.ma_bravo || "—"),
-                    h("td", { className: "px-2 py-1 text-slate-800 max-w-[200px] truncate" }, it.ten_ccdc),
-                    h("td", { className: "px-2 py-1 font-mono text-slate-600 whitespace-nowrap" }, it.serial || "—"),
-                    h("td", { className: "px-2 py-1 text-right tabular-nums" }, it.so_luong),
-                    h("td", { className: "px-2 py-1 whitespace-nowrap" }, fmtDate(it.ngay_ky_gui)),
-                    h("td", { className: "px-2 py-1 text-slate-600 whitespace-nowrap" }, it.ktv_phu_trach || "—"))),
-                  preview.items.length > 30 && h("tr", null, h("td", { colSpan: 8, className: "px-2 py-2 text-center text-slate-400" },
-                    "… và " + (preview.items.length - 30) + " dòng nữa")),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        h("div", { className: "px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50" },
-          h("button", { onClick: onClose, disabled: busy, className: "px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded" }, "Huỷ"),
-          h("button", {
-            onClick: submit, disabled: busy || !preview || !nhomSP.trim(),
-            className: "px-4 py-1.5 text-sm font-semibold bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50",
-          }, busy ? "Đang lưu…" : willReplace ? "Thay thế snapshot" : "Lưu snapshot"),
-        ),
-          ),
-      ),
-    );
+              preview && h("div", null,
+                h("div", { className: "mb-1 text-[12px] text-slate-500" },
+                  h("b", { className: "font-semibold text-slate-800" }, fmtInt(preview.items.length) + " dòng"),
+                  " · SL " + fmtInt(preview.items.reduce((s, i) => s + i.so_luong, 0)) + " · sheet " + preview.sheetName),
+                h("div", { className: "scroll-shadow max-h-60 overflow-auto rounded-md border border-slate-200" },
+                  h("table", { className: T.table + " text-[12px]" },
+                    h("thead", { className: "sticky top-0" }, h("tr", { className: T.headRow },
+                      ["Mã BV", "Tên BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "KTV"].map((c, i) =>
+                        h("th", { key: c, className: T.th(i === 5) }, c)))),
+                    h("tbody", null,
+                      preview.items.slice(0, 30).map((it, i) => h("tr", { key: i, className: T.row(i) },
+                        h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.ma_bv || "—"),
+                        h("td", { className: "max-w-[180px] truncate px-3 py-1 text-slate-700" }, it.ten_bv || "—"),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-800" }, it.ma_bravo || "—"),
+                        h("td", { className: "max-w-[220px] truncate px-3 py-1 text-slate-800" }, it.ten_ccdc),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.serial || "—"),
+                        h("td", { className: "px-3 py-1 text-right tabular-nums" }, it.so_luong),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 tabular-nums" }, fmtDate(it.ngay_ky_gui)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 text-slate-600" }, it.ktv_phu_trach || "—"))),
+                      preview.items.length > 30 && h("tr", null, h("td", { colSpan: 8, className: "px-3 py-2 text-center text-slate-400" },
+                        "… và " + (preview.items.length - 30) + " dòng nữa"))))))),
+            h("div", { className: "flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3" },
+              h("button", { type: "button", onClick: onClose, disabled: busy, className: btn.secondary }, "Huỷ"),
+              h("button", { type: "button", onClick: submit, disabled: busy || !preview || !nhomSP.trim(), className: btn.primary },
+                busy ? h(I.Loader2, { size: 14, className: "animate-spin" }) : h(I.Upload, { size: 14 }),
+                busy ? "Đang lưu…" : willReplace ? "Thay thế snapshot" : "Lưu snapshot"))));
   }
 
   // ─── So sánh 2 kỳ ─────────────────────────────────────────
   const DIFF_META = {
-    added:   { label: "Thêm mới", badge: "bg-emerald-50 text-emerald-700", card: "bg-emerald-50 border-emerald-200 text-emerald-700" },
-    removed: { label: "Thu hồi",  badge: "bg-red-50 text-red-700",         card: "bg-red-50 border-red-200 text-red-700" },
-    moved:   { label: "Chuyển BV", badge: "bg-amber-50 text-amber-700",    card: "bg-amber-50 border-amber-200 text-amber-700" },
+    added:   { label: "Thêm mới",  tone: "blue",  swatch: "bg-blue-500" },
+    removed: { label: "Thu hồi",   tone: "red",   swatch: "bg-red-500" },
+    moved:   { label: "Chuyển BV", tone: "amber", swatch: "bg-amber-500" },
   };
+  const bvLabel = (ma, ten) => ma && ten ? ma + " · " + ten : ten || ma || "—";
 
-  function DiffView({ idOld, idNew }) {
+  function DiffView({ idOld, idNew, mien, reload }) {
     const [data, setData] = useState(null);
     const [error, setError] = useState("");
     const [only, setOnly] = useState("");
 
     useEffect(() => {
       let alive = true;
-      setData(null); setError("");
-      api("snapshot_diff", { snapshot_id_old: idOld, snapshot_id_new: idNew })
+      setError("");
+      api("snapshot_diff", { snapshot_id_old: idOld, snapshot_id_new: idNew, mien })
         .then((r) => alive && setData(r))
         .catch((e) => alive && setError(e.message || String(e)));
       return () => { alive = false; };
-    }, [idOld, idNew]);
+    }, [idOld, idNew, mien.join("|"), reload]);
 
-    if (error) return h("div", { className: "bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded" }, "Lỗi: " + error);
-    if (!data) return h("div", { className: "p-4 text-sm text-slate-500" }, "Đang so sánh…");
+    if (error) return h(LoadingBlock, { error });
+    if (!data) return h(LoadingBlock);
 
     const rows = ["added", "removed", "moved"].flatMap((k) => (data[k] || []).map((r) => ({ ...r, _k: k })))
       .filter((r) => !only || r._k === only);
     const slOf = { added: data.summary.sl_added, removed: data.summary.sl_removed, moved: data.summary.sl_moved };
-    const bvLabel = (ma, ten) => ma && ten ? ma + " · " + ten : ten || ma || "—";
 
     return h("div", { className: "space-y-3" },
       h("div", { className: "grid grid-cols-3 gap-3" },
-        ["added", "removed", "moved"].map((k) => h("button", {
-          key: k, onClick: () => setOnly(only === k ? "" : k),
-          className: "border rounded-lg px-4 py-3 text-center " + DIFF_META[k].card + (only === k ? " ring-2 ring-offset-1 ring-blue-400" : ""),
-        },
-          h("div", { className: "text-2xl font-bold tabular-nums" }, fmtInt((data[k] || []).length)),
-          h("div", { className: "text-xs font-semibold uppercase mt-1" }, DIFF_META[k].label + " · SL " + fmtInt(slOf[k])),
-        ))),
-
-      rows.length === 0
-        ? h("div", { className: "bg-white border border-slate-200 rounded-lg text-center text-sm text-slate-400 py-8" }, "Không có thay đổi")
-        : h("div", { className: "bg-white border border-slate-200 rounded-lg overflow-x-auto" },
-            h("table", { className: "w-full text-sm" },
-              h("thead", { className: "bg-slate-50" },
-                h("tr", null, ["Thay đổi", "Tên CCDC", "Mã Bravo", "Serial", "SL", "Bệnh viện", "KTV"].map((c, i) =>
-                  h("th", { key: i, className: "px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase whitespace-nowrap" }, c)))),
-              h("tbody", null,
-                rows.map((r, i) => h("tr", { key: i, className: "border-t border-slate-100 align-top" },
-                  h("td", { className: "px-3 py-2" },
-                    h("span", { className: "inline-block px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap " + DIFF_META[r._k].badge }, DIFF_META[r._k].label)),
-                  h("td", { className: "px-3 py-2 text-slate-800" }, r.ten_ccdc || "—"),
-                  h("td", { className: "px-3 py-2 font-mono text-xs whitespace-nowrap" }, r.ma_bravo || "—"),
-                  h("td", { className: "px-3 py-2 font-mono text-xs whitespace-nowrap" }, r.serial || "—"),
-                  h("td", { className: "px-3 py-2 text-right tabular-nums" }, fmtInt(r.so_luong)),
-                  h("td", { className: "px-3 py-2 text-slate-700" },
+        ["added", "removed", "moved"].map((k) => h(StatCard, {
+          key: k, label: DIFF_META[k].label, swatch: DIFF_META[k].swatch, value: fmtInt((data[k] || []).length) + " dòng",
+          sub: "SL " + fmtInt(slOf[k]) + (only === k ? " · đang lọc" : " · bấm để lọc"),
+          onClick: () => setOnly(only === k ? "" : k), active: only === k,
+        }))),
+      h(Panel, { title: "Thay đổi giữa 2 kỳ", subtitle: fmtInt(rows.length) + " dòng" },
+        rows.length === 0
+          ? h("div", { className: "px-4 py-8 text-center text-[13px] text-slate-400" }, "Không có thay đổi")
+          : h("div", { className: "scroll-shadow overflow-x-auto" },
+              h("table", { className: T.table + " min-w-[900px]" },
+                h("thead", null, h("tr", { className: T.headRow },
+                  ["Thay đổi", "Tên CCDC", "Mã Bravo", "Serial", "SL", "Bệnh viện", "KTV"].map((c, i) => h("th", { key: c, className: T.th(i === 4) }, c)))),
+                h("tbody", null, rows.map((r, i) => h("tr", { key: i, className: T.row(i) + " align-top" },
+                  h("td", { className: T.td }, h(Badge, { tone: DIFF_META[r._k].tone }, DIFF_META[r._k].label)),
+                  h("td", { className: T.td + " text-slate-800" }, r.ten_ccdc || "—"),
+                  h("td", { className: T.td + " whitespace-nowrap font-mono text-[12px]" }, r.ma_bravo || "—"),
+                  h("td", { className: T.td + " whitespace-nowrap font-mono text-[12px]" }, r.serial || "—"),
+                  h("td", { className: T.num }, fmtInt(r.so_luong)),
+                  h("td", { className: T.td + " text-slate-700" },
                     r._k === "moved"
                       ? h("span", null, h("span", { className: "text-slate-400" }, bvLabel(r.tu_ma_bv, r.tu_ten_bv)), " → ", bvLabel(r.ma_bv, r.ten_bv))
                       : bvLabel(r.ma_bv, r.ten_bv)),
-                  h("td", { className: "px-3 py-2 text-slate-600 whitespace-nowrap" },
+                  h("td", { className: T.td + " whitespace-nowrap text-slate-600" },
                     r._k === "moved" && (r.tu_ktv || "") !== (r.ktv_phu_trach || "")
                       ? (r.tu_ktv || "—") + " → " + (r.ktv_phu_trach || "—")
-                      : r.ktv_phu_trach || "—"),
-                ))),
-            )),
+                      : r.ktv_phu_trach || "—"))))))),
     );
   }
 
   // ─── Chi tiết 1 snapshot (nhóm theo BV) ───────────────────
-  function SnapshotDetail({ snapId }) {
-    const [items, setItems] = useState([]);
-    const [loading, setLoading] = useState(true);
+  function SnapshotDetail({ snapId, mien, reload }) {
+    const [items, setItems] = useState(null);
     const [error, setError] = useState("");
     const [search, setSearch] = useState("");
     const [searchApplied, setSearchApplied] = useState("");
@@ -342,178 +302,147 @@
 
     useEffect(() => {
       let alive = true;
-      setLoading(true); setError("");
-      api("snapshot_items", { snapshot_id: snapId, search: searchApplied })
-        .then((r) => { if (alive) { setItems(r.rows || []); setLoading(false); } })
-        .catch((e) => { if (alive) { setError(e.message || String(e)); setLoading(false); } });
+      setError("");
+      api("snapshot_items", { snapshot_id: snapId, search: searchApplied, mien })
+        .then((r) => alive && setItems(r.rows || []))
+        .catch((e) => alive && setError(e.message || String(e)));
       return () => { alive = false; };
-    }, [snapId, searchApplied]);
+    }, [snapId, searchApplied, mien.join("|"), reload]);
 
     const grouped = useMemo(() => {
       const map = {};
-      for (const r of items) {
+      for (const r of items || []) {
         const k = r.ten_bv || r.ma_bv || "Không rõ BV";
         (map[k] ??= { ma_bv: r.ma_bv, mien: r.mien, rows: [] }).rows.push(r);
       }
       return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "vi"));
     }, [items]);
+    const allCollapsed = grouped.length > 0 && grouped.every(([k]) => collapsed[k]);
 
-    return h("div", { className: "space-y-3" },
-      h("div", { className: "flex items-center gap-3 flex-wrap" },
-        h("div", { className: "relative flex-1 min-w-[200px] max-w-sm" },
-          h("input", {
-            type: "search", value: search, onChange: (e) => setSearch(e.target.value),
-            placeholder: "Tìm BV / mã / tên / serial / KTV…",
-            className: "w-full pl-3 pr-8 py-1.5 text-sm border border-slate-200 rounded-md bg-white outline-none focus:border-blue-400",
-          })),
-        h("span", { className: "text-xs text-slate-500" },
-          loading ? "đang tải…" : fmtInt(items.length) + " dòng · " + grouped.length + " BV"),
-      ),
-      error && h("div", { className: "bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded" }, "Lỗi: " + error),
-
-      grouped.map(([bv, g]) => {
-        const isCol = collapsed[bv];
-        const sl = g.rows.reduce((s, r) => s + Number(r.so_luong || 0), 0);
-        return h("div", { key: bv, className: "bg-white border border-slate-200 rounded-lg overflow-hidden" },
-          h("div", {
-            className: "px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-100",
-            onClick: () => setCollapsed((c) => ({ ...c, [bv]: !c[bv] })),
-          },
-            h("div", { className: "flex items-center gap-2 min-w-0" },
-              h("span", { className: "text-slate-400 text-xs w-4 text-center shrink-0" }, isCol ? "▶" : "▼"),
-              g.ma_bv && h("span", { className: "font-mono text-xs text-slate-500 shrink-0" }, g.ma_bv),
-              h("span", { className: "font-semibold text-slate-800 text-sm truncate" }, bv),
-              h("span", { className: "text-[11px] text-slate-500 shrink-0" }, g.mien || "chưa map miền"),
-            ),
-            h("span", { className: "text-xs text-slate-600 shrink-0" },
-              g.rows.length + " dòng · SL ", h("span", { className: "font-semibold tabular-nums" }, fmtInt(sl))),
-          ),
-          !isCol && h("div", { className: "overflow-x-auto" },
-            h("table", { className: "w-full text-sm" },
-              h("thead", { className: "border-b border-slate-100" },
-                h("tr", null, ["Mã Bravo", "Mã NCC", "Tên CCDC", "Serial", "ĐVT", "SL", "Ngày KG", "KTV", "Note"].map((c, i) =>
-                  h("th", { key: i, className: "px-3 py-1.5 text-left text-[11px] font-semibold text-slate-500 uppercase whitespace-nowrap" }, c)))),
-              h("tbody", null,
-                g.rows.map((r) => h("tr", { key: r.id, className: "border-b border-slate-100 last:border-0 hover:bg-blue-50/30" },
-                  h("td", { className: "px-3 py-1.5 font-mono text-xs text-slate-900 whitespace-nowrap" }, r.ma_bravo || "—"),
-                  h("td", { className: "px-3 py-1.5 font-mono text-xs text-slate-600 whitespace-nowrap" }, r.ma_ncc || "—"),
-                  h("td", { className: "px-3 py-1.5 text-slate-800" }, r.ten_ccdc),
-                  h("td", { className: "px-3 py-1.5 font-mono text-xs text-slate-600 whitespace-nowrap" }, r.serial || "—"),
-                  h("td", { className: "px-3 py-1.5 text-xs text-slate-600" }, r.dvt || "—"),
-                  h("td", { className: "px-3 py-1.5 text-right tabular-nums font-semibold" }, fmtInt(r.so_luong)),
-                  h("td", { className: "px-3 py-1.5 text-xs text-slate-600 whitespace-nowrap" }, fmtDate(r.ngay_ky_gui)),
-                  h("td", { className: "px-3 py-1.5 text-slate-700 whitespace-nowrap" }, r.ktv_phu_trach || "—"),
-                  h("td", { className: "px-3 py-1.5 text-xs text-slate-500" }, r.note || "—"),
-                ))),
-            )),
-        );
-      }),
-    );
+    return h(Panel, {
+      title: "Danh sách CCDC ký gửi",
+      subtitle: items ? fmtInt(items.length) + " dòng · " + grouped.length + " bệnh viện · SL " + fmtInt((items || []).reduce((s, r) => s + Number(r.so_luong || 0), 0)) : "",
+      right: h("div", { className: "flex items-center gap-2" },
+        h(SearchInput, { value: search, onChange: setSearch, placeholder: "Tìm BV, mã, tên, serial, KTV…", className: "w-64" }),
+        grouped.length > 0 && h("button", { type: "button", className: btn.link,
+          onClick: () => setCollapsed(allCollapsed ? {} : Object.fromEntries(grouped.map(([k]) => [k, true]))) },
+          allCollapsed ? "Mở tất cả" : "Thu gọn tất cả")),
+    },
+      error ? h("div", { className: "p-4" }, h(LoadingBlock, { error }))
+      : !items ? h(LoadingBlock)
+      : h("div", { className: "scroll-shadow overflow-x-auto" },
+          h("table", { className: T.table + " min-w-[1000px]" },
+            h("thead", null, h("tr", { className: T.headRow },
+              ["Mã Bravo", "Mã NCC", "Tên CCDC", "Serial", "ĐVT", "SL", "Ngày KG", "KTV", "Note"].map((c, i) => h("th", { key: c, className: T.th(i === 5) }, c)))),
+            h("tbody", null,
+              grouped.length === 0
+                ? h("tr", null, h("td", { colSpan: 9, className: "px-3 py-8 text-center text-slate-400" }, "Không có dòng nào khớp"))
+                : grouped.flatMap(([bv, g]) => {
+                    const isCol = collapsed[bv];
+                    const sl = g.rows.reduce((s, r) => s + Number(r.so_luong || 0), 0);
+                    return [
+                      h("tr", { key: "g|" + bv, onClick: () => setCollapsed((c) => ({ ...c, [bv]: !c[bv] })),
+                        className: "cursor-pointer select-none border-t border-slate-200 bg-slate-50 hover:bg-blue-50/40" },
+                        h("td", { colSpan: 9, className: "px-3 py-1.5" },
+                          h("div", { className: "flex items-center gap-2" },
+                            h("span", { className: "inline-block w-3 text-slate-400", style: { transform: isCol ? "none" : "rotate(90deg)", transition: "transform 120ms" } }, "▸"),
+                            g.ma_bv && h("span", { className: "font-mono text-[11px] text-slate-400" }, g.ma_bv),
+                            h("span", { className: "font-semibold text-slate-800" }, bv),
+                            g.mien ? h("span", { className: "text-[11px] text-slate-400" }, g.mien) : h(Badge, { tone: "amber" }, "chưa xác định miền"),
+                            h("span", { className: "text-[12px] text-slate-500" }, "· " + g.rows.length + " dòng · SL ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtInt(sl)))))),
+                      ...(isCol ? [] : g.rows.map((r, i) => h("tr", { key: r.id, className: T.row(i) },
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-800" }, r.ma_bravo || "—"),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-500" }, r.ma_ncc || "—"),
+                        h("td", { className: "px-3 py-1.5 text-slate-800" }, r.ten_ccdc),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-600" }, r.serial || "—"),
+                        h("td", { className: "px-3 py-1.5 text-[12px] text-slate-500" }, r.dvt || "—"),
+                        h("td", { className: "px-3 py-1.5 text-right font-semibold tabular-nums" }, fmtInt(r.so_luong)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600" }, fmtDate(r.ngay_ky_gui)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 text-slate-700" }, r.ktv_phu_trach || "—"),
+                        h("td", { className: "px-3 py-1.5 text-[12px] text-slate-500" }, r.note || "—")))),
+                    ];
+                  })))));
   }
 
   // ────────────────────────────────────────────────────────────────
-  // MÀN KÝ GỬI
-  // ────────────────────────────────────────────────────────────────
   function KyGuiScreen({ user }) {
     const canWrite = user?.permission?.canWrite;
-    const [snapshots, setSnapshots] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [nhom, setNhom] = useState("");
-    const [selId, setSelId] = useState(null);
-    const [mode, setMode] = useState("detail");
-    const [oldId, setOldId] = useState(null);
+    const f = useKgFilters(user, { requireNhom: true });
+    const reload = useReload();
+    const q = R.useQuery();
     const [modalOpen, setModalOpen] = useState(false);
+    const mode = q.get("xem") === "so-sanh" ? "diff" : "detail";
 
-    const load = useCallback(async (focusId) => {
-      setLoading(true); setError("");
-      try {
-        const res = await api("snapshot_list");
-        const rows = res.rows || [];
-        setSnapshots(rows);
-        const focus = rows.find((s) => s.id === focusId);
-        if (focus) { setNhom(focus.nhom_san_pham); setSelId(focus.id); }
-        else setNhom((cur) => cur || (rows[0] && rows[0].nhom_san_pham) || "");
-      } catch (e) { setError(e.message || String(e)); }
-      setLoading(false);
-    }, []);
-    useEffect(() => { load(); }, [load]);
+    const ofNhom = f.snapshots.filter((s) => s.nhom_san_pham === f.nhom)
+      .sort((a, b) => String(b.ky_cap_nhat).localeCompare(String(a.ky_cap_nhat)));
+    const inFy = ofNhom.filter((s) => Number(s.fiscal_year) === f.fy);
+    const kyParam = q.get("ky");
+    const sel = inFy.find((s) => String(s.ky_cap_nhat).slice(0, 7) === kyParam) || inFy[0] || null;
+    const selIdx = sel ? ofNhom.indexOf(sel) : -1;
+    const cuParam = q.get("so-voi");
+    const old = ofNhom.find((s) => String(s.ky_cap_nhat).slice(0, 7) === cuParam && s !== sel) || ofNhom[selIdx + 1] || null;
 
-    const nhomOptions = useMemo(() => [...new Set(snapshots.map((s) => s.nhom_san_pham))].sort(), [snapshots]);
-    const ofNhom = useMemo(() => snapshots.filter((s) => s.nhom_san_pham === nhom), [snapshots, nhom]);
-
-    // Giữ lựa chọn hợp lệ khi đổi nhóm SP: kỳ mới nhất, so với kỳ liền trước
-    useEffect(() => {
-      if (!ofNhom.length) { setSelId(null); setOldId(null); return; }
-      const cur = ofNhom.findIndex((s) => s.id === selId);
-      const idx = cur >= 0 ? cur : 0;
-      if (cur < 0) setSelId(ofNhom[0].id);
-      if (!ofNhom.some((s) => s.id === oldId && s.id !== ofNhom[idx].id))
-        setOldId(ofNhom[idx + 1] ? ofNhom[idx + 1].id : null);
-    }, [ofNhom, selId]);
-
-    const sel = "px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white outline-none focus:border-blue-400";
-    const selSnap = ofNhom.find((s) => s.id === selId);
-
-    return h("div", { className: "p-4 md:p-6 space-y-4" },
-      h("div", { className: "flex items-baseline gap-3 flex-wrap" },
-        h("h1", { className: "text-lg font-bold text-slate-900" }, "Ký gửi"),
-        h("span", { className: "text-xs text-slate-500" }, loading ? "đang tải…" : fmtInt(snapshots.length) + " snapshot"),
-        canWrite && h("button", {
-          onClick: () => setModalOpen(true),
-          className: "ml-auto px-3 py-1.5 text-xs font-semibold rounded bg-blue-500 text-white hover:bg-blue-600",
-        }, "+ Upload snapshot"),
-      ),
-      error && h("div", { className: "bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded" }, "Lỗi: " + error),
-
-      !loading && snapshots.length === 0
-        ? h("div", { className: "bg-white border border-slate-200 rounded-lg px-6 py-12 text-center text-sm text-slate-400" },
-            "Chưa có snapshot nào", canWrite ? " — bấm \"Upload snapshot\" để tải file Excel ký gửi." : ".")
-        : h(React.Fragment, null,
-            h("div", { className: "flex flex-wrap items-center gap-2" },
-              h("select", { className: sel, value: nhom, onChange: (e) => setNhom(e.target.value) },
-                nhomOptions.map((n) => h("option", { key: n, value: n }, n))),
-              h("div", { className: "flex items-center gap-1 bg-white border border-slate-200 rounded-md p-0.5 ml-auto" },
-                [["detail", "Chi tiết"], ["diff", "So sánh kỳ"]].map(([k, label]) => h("button", {
-                  key: k, onClick: () => setMode(k),
-                  className: "px-3 py-1 text-xs font-semibold rounded " + (mode === k ? "bg-blue-500 text-white" : "text-slate-600 hover:bg-slate-100"),
-                }, label))),
-            ),
-
-            h("div", { className: "flex gap-2 overflow-x-auto pb-1" },
-              ofNhom.map((s) => h("button", {
-                key: s.id, onClick: () => setSelId(s.id),
-                className: "shrink-0 px-3 py-2 rounded-lg border text-left " +
-                  (s.id === selId ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:border-blue-300"),
-              },
-                h("div", { className: "text-sm font-semibold text-slate-800" }, fmtKy(s.ky_cap_nhat)),
-                h("div", { className: "text-[11px] text-slate-500 mt-0.5 whitespace-nowrap" },
-                  fmtInt(s.tong_dong) + " dòng · SL " + fmtInt(s.tong_sl)),
-              ))),
-
-            selSnap && mode === "detail" && h(SnapshotDetail, { key: selSnap.id, snapId: selSnap.id }),
-
-            selSnap && mode === "diff" && h("div", { className: "space-y-3" },
-              h("div", { className: "flex items-center gap-2 flex-wrap text-sm text-slate-600" },
-                "So",
-                h("select", { className: sel, value: oldId || "", onChange: (e) => setOldId(Number(e.target.value) || null) },
-                  h("option", { value: "" }, "-- chọn kỳ cũ --"),
-                  ofNhom.filter((s) => s.id !== selId).map((s) => h("option", { key: s.id, value: s.id }, fmtKy(s.ky_cap_nhat)))),
-                "→", h("b", { className: "text-slate-900" }, fmtKy(selSnap.ky_cap_nhat)),
-                h("span", { className: "text-xs text-slate-400" }, "(bấm thẻ kỳ ở trên để đổi kỳ mới)"),
-              ),
-              oldId
-                ? h(DiffView, { key: oldId + "-" + selId, idOld: oldId, idNew: selId })
-                : h("div", { className: "bg-white border border-slate-200 rounded-lg text-center text-sm text-slate-400 py-8" },
-                    ofNhom.length < 2 ? "Cần ít nhất 2 kỳ của nhóm " + nhom + " để so sánh" : "Chọn kỳ cũ để so sánh"),
-            ),
-          ),
-
-      modalOpen && h(UploadModal, {
-        existing: snapshots,
-        onClose: () => setModalOpen(false),
-        onUploaded: (id) => load(id),
+    const filters = h(KgFilters, { f });
+    const toolbar = h("div", { className: "flex flex-wrap items-center gap-2" },
+      h(Segmented, {
+        options: [{ key: "detail", label: "Chi tiết kỳ" }, { key: "diff", label: "So sánh 2 kỳ" }],
+        value: mode, onChange: (k) => R.setQuery({ xem: k === "diff" ? "so-sanh" : "" }),
       }),
+      f.nhom && h("span", { className: "text-[13px] text-slate-500" }, f.nhom + " · " + fmtInt(inFy.length) + " kỳ trong " + fyLabel(f.fy)),
+      h("div", { className: "flex-1" }),
+      canWrite && h("button", { type: "button", onClick: () => setModalOpen(true), className: btn.primary }, h(I.Upload, { size: 14 }), "Upload snapshot"));
+
+    const modal = modalOpen && h(UploadModal, {
+      existing: f.snapshots, defaultNhom: f.nhom,
+      onClose: () => setModalOpen(false),
+      onUploaded: (nhom, ky) => {
+        invalidateSnapshots();
+        const d = new Date(ky + "T00:00:00");
+        R.setQuery({ nhom, fy: String(fyOf(d)), ky: ky.slice(0, 7) });
+      },
+    });
+
+    if (f.loading) return h(React.Fragment, null, filters, h(LoadingBlock));
+    if (f.error) return h(React.Fragment, null, filters, h(LoadingBlock, { error: f.error }));
+
+    return h("div", { className: "space-y-4" },
+      filters,
+      toolbar,
+      f.snapshots.length === 0
+        ? h(Empty, null, "Chưa có snapshot nào", canWrite ? " — bấm \"Upload snapshot\" để tải file Excel ký gửi." : ".")
+        : inFy.length === 0
+          ? h(Empty, null, "Nhóm " + f.nhom + " chưa có snapshot trong " + fyLabel(f.fy) + ". Đổi năm tài chính trên bộ lọc" + (canWrite ? " hoặc upload kỳ mới." : "."))
+          : h(React.Fragment, null,
+              h("div", { className: "scroll-shadow flex gap-2 overflow-x-auto pb-1" },
+                inFy.map((s) => {
+                  const on = s === sel;
+                  return h("button", {
+                    key: s.id, type: "button", onClick: () => R.setQuery({ ky: String(s.ky_cap_nhat).slice(0, 7) }),
+                    className: "shrink-0 rounded-xl border bg-white px-3.5 py-2.5 text-left transition-colors " +
+                      (on ? "border-blue-400 ring-2 ring-blue-100" : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/30"),
+                  },
+                    h("div", { className: "text-[11px] tracking-wide text-slate-400" }, "Kỳ"),
+                    h("div", { className: "text-[16px] font-bold tabular-nums " + (on ? "text-blue-600" : "text-slate-800") }, fmtKy(s.ky_cap_nhat)),
+                    h("div", { className: "mt-0.5 whitespace-nowrap text-[11px] text-slate-400" }, fmtInt(s.tong_dong) + " dòng · SL " + fmtInt(s.tong_sl)));
+                })),
+
+              mode === "detail" && sel && h(SnapshotDetail, { key: sel.id, snapId: sel.id, mien: f.mien, reload }),
+
+              mode === "diff" && sel && h("div", { className: "space-y-3" },
+                h("div", { className: "flex flex-wrap items-center gap-2 text-[13px] text-slate-600" },
+                  h(UI.FilterSelect, {
+                    label: "Kỳ cũ", allowAll: false,
+                    options: ofNhom.filter((s) => s !== sel).map((s) => ({ value: String(s.ky_cap_nhat).slice(0, 7), label: fmtKy(s.ky_cap_nhat) })),
+                    selected: old ? [String(old.ky_cap_nhat).slice(0, 7)] : [], onChange: (v) => R.setQuery({ "so-voi": v[0] }),
+                  }),
+                  h(I.ArrowRight, { size: 14, className: "text-slate-400" }),
+                  h("span", { className: "rounded-md border border-slate-200 bg-white px-2.5 py-1.5" },
+                    h("span", { className: "text-slate-400" }, "Kỳ mới: "), h("b", { className: "font-medium text-blue-700" }, fmtKy(sel.ky_cap_nhat))),
+                  h("span", { className: "text-[11px] text-slate-400" }, "Bấm thẻ kỳ ở trên để đổi kỳ mới")),
+                old
+                  ? h(DiffView, { key: old.id + "-" + sel.id, idOld: old.id, idNew: sel.id, mien: f.mien, reload })
+                  : h(Empty, null, "Chưa có kỳ trước của nhóm " + f.nhom + " để so sánh"))),
+      modal,
     );
   }
 

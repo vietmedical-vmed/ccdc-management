@@ -110,6 +110,13 @@ function getPermission(session: Session): Permission {
   }
 }
 
+// Miền user chọn trên bộ lọc, giao với miền được phép. null = mọi miền.
+function mienScope(perm: Permission, requested: unknown): string[] | null {
+  const req = (Array.isArray(requested) ? requested : requested ? [requested] : []).map(String).filter(Boolean);
+  if (!req.length) return perm.filterMien;
+  return perm.filterMien ? req.filter((m) => perm.filterMien!.includes(m)) : req;
+}
+
 // ─── Utils ───────────────────────────────────────────────────────────────
 // Escape ký tự phá vỡ cú pháp .or() của PostgREST khi ghép chuỗi search.
 function sanitizeSearch(s: string): string {
@@ -1071,9 +1078,10 @@ async function handleAction(
         return { ok: false, error: "forbidden" };
 
       const search = sanitizeSearch(payload.search ?? "").replace(/"/g, "");
+      const mienF = mienScope(perm, payload.mien);
       const rows = await fetchAll((from, to) => {
         let q = app.from("snapshot_items").select(SNAP_ITEM_COLS).eq("snapshot_id", id);
-        if (perm.filterMien) q = q.in("mien", perm.filterMien);
+        if (mienF) q = q.in("mien", mienF);
         if (search) {
           q = q.or(["ma_bv", "ten_bv", "ma_bravo", "ma_ncc", "ten_ccdc", "serial", "ktv_phu_trach"]
             .map((c) => `${c}.ilike.*${search}*`).join(","));
@@ -1103,8 +1111,8 @@ async function handleAction(
         items.filter((r) => r.snapshot_id === idOld),
         items.filter((r) => r.snapshot_id === idNew),
       );
-      const inScope = (r: any) => !perm.filterMien
-        || perm.filterMien.includes(r.mien) || perm.filterMien.includes(r.tu_mien);
+      const mienF = mienScope(perm, payload.mien);
+      const inScope = (r: any) => !mienF || mienF.includes(r.mien) || mienF.includes(r.tu_mien);
       const a = added.filter(inScope), rm = removed.filter(inScope), mv = moved.filter(inScope);
       return {
         ok: true, added: a, removed: rm, moved: mv,
@@ -1124,6 +1132,8 @@ async function handleAction(
         .select("id, nhom_san_pham, ky_cap_nhat, fiscal_year, tong_sl, created_at, created_by")
         .order("ky_cap_nhat");
       if (perm.filterNhomSP?.length) qS = qS.in("nhom_san_pham", perm.filterNhomSP);
+      if (payload.nhom_san_pham) qS = qS.eq("nhom_san_pham", String(payload.nhom_san_pham));
+      const mienF = mienScope(perm, payload.mien);
       const { data: snapsRaw, error: eS } = await qS;
       if (eS) throw new Error(eS.message);
       const snaps = snapsRaw ?? [];
@@ -1160,7 +1170,7 @@ async function handleAction(
         : [];
       const slBySnap = new Map<number, number>();
       for (const r of mienRows) {
-        if (perm.filterMien && !perm.filterMien.includes(r.mien)) continue;
+        if (mienF && !mienF.includes(r.mien)) continue;
         slBySnap.set(r.snapshot_id, (slBySnap.get(r.snapshot_id) ?? 0) + Number(r.sl ?? 0));
       }
 
@@ -1186,7 +1196,7 @@ async function handleAction(
       }
       const itemIds = current.flatMap((c) => c.prev ? [c.snap.id, c.prev.id] : [c.snap.id]);
       const items = itemIds.length ? await fetchSnapshotItems(admin, itemIds, null) : [];
-      const inMien = (r: any) => !perm.filterMien || perm.filterMien.includes(r.mien);
+      const inMien = (r: any) => !mienF || mienF.includes(r.mien);
       const norm = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 
       const curItems: any[] = [];
@@ -1195,7 +1205,7 @@ async function handleAction(
         const visible = cur.filter(inMien);
         curItems.push(...visible.map((r) => ({ ...r, nhom_san_pham: nhom })));
         const d = prev ? computeDiff(items.filter((r) => r.snapshot_id === prev.id), cur) : null;
-        const inScope = (r: any) => inMien(r) || (!!perm.filterMien && perm.filterMien.includes(r.tu_mien));
+        const inScope = (r: any) => inMien(r) || (!!mienF && mienF.includes(r.tu_mien));
         return {
           nhom_san_pham: nhom, snapshot_id: snap.id, ky_cap_nhat: snap.ky_cap_nhat,
           created_at: snap.created_at, created_by: snap.created_by,
@@ -1316,8 +1326,9 @@ async function handleAction(
       }
 
       const num = (v: unknown) => Number(v ?? 0);
+      const mienF = mienScope(perm, payload.mien);
       const rows = [...byBv.values()]
-        .filter((b) => !perm.filterMien || perm.filterMien.includes(b.mien as string))
+        .filter((b) => !mienF || mienF.includes(b.mien as string))
         .map((b) => ({
           ma_bv: b.ma_bv, ten_bv: b.ten_bv || b.quota?.khach_hang || b.ma_bv, mien: b.mien,
           sl_ccdc: b.sl_ccdc, loai: b.loai, ktv: b.ktv,
