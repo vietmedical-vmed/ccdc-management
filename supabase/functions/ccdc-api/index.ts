@@ -1251,6 +1251,93 @@ async function handleAction(
       };
     }
 
+    // ── Phân bổ CCDC: CCDC ký gửi (snapshot mới nhất) × quota thầu còn lại theo BV ──
+    // params: { nhom_san_pham?, fiscal_year? }. Phân loại Giữ / Rút / Thiếu làm ở client theo ngưỡng.
+    case "phan_bo_ccdc": {
+      const app = admin.schema("app_ccdc");
+      const fy = Number(payload.fiscal_year) || fyOf(new Date());
+      const fyLabel = "FY" + String(fy).slice(-2);
+
+      let qS = app.from("snapshots").select("id, nhom_san_pham, ky_cap_nhat")
+        .order("ky_cap_nhat", { ascending: false });
+      if (perm.filterNhomSP?.length) qS = qS.in("nhom_san_pham", perm.filterNhomSP);
+      const { data: snaps, error: eS } = await qS;
+      if (eS) throw new Error(eS.message);
+      const nhom_options = [...new Set((snaps ?? []).map((s: any) => s.nhom_san_pham))].sort();
+      const nhom = nhom_options.includes(payload.nhom_san_pham) ? payload.nhom_san_pham : nhom_options[0];
+      if (!nhom) return { ok: true, fy, nhom_options, rows: [] };
+      const snap = (snaps ?? []).find((s: any) => s.nhom_san_pham === nhom);
+
+      const [items, quota] = await Promise.all([
+        fetchSnapshotItems(admin, [snap.id], null),
+        fetchAll((from, to) => app.from("v_quota_kh_nhom").select("*")
+          .eq("nam_tai_chinh", fyLabel).eq("nhom_san_pham", nhom)
+          .order("ma_khach_hang").range(from, to)),
+      ]);
+
+      // Bỏ số thứ tự bộ ở cuối tên ("CCDC NSK GỐI - NAM - 05" → "CCDC NSK GỐI") để gom theo loại
+      const loaiOf = (ten: string) => String(ten ?? "").trim()
+        .replace(/\s+-\s+(?:(?:nam|bắc|bac|trung|mb|mn|mt)\s+-\s+)?\d+$/iu, "").trim();
+      const norm = (s: unknown) => String(s ?? "").trim().toUpperCase();
+
+      type Row = {
+        ma_bv: string | null; ten_bv: string | null; mien: string | null;
+        sl_ccdc: number; loai: Record<string, number>; ktv: string[];
+        quota: any | null;
+      };
+      const byBv = new Map<string, Row>();
+      for (const r of items) {
+        const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, loai: {}, ktv: [], quota: null });
+        const b = byBv.get(k)!;
+        const sl = Number(r.so_luong ?? 0);
+        b.sl_ccdc += sl;
+        const l = loaiOf(r.ten_ccdc);
+        b.loai[l] = (b.loai[l] ?? 0) + sl;
+        if (r.ktv_phu_trach && !b.ktv.includes(r.ktv_phu_trach)) b.ktv.push(r.ktv_phu_trach);
+      }
+      for (const q of quota) {
+        if (!q.ma_khach_hang) continue;
+        const k = norm(q.ma_khach_hang);
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, loai: {}, ktv: [], quota: null });
+        byBv.get(k)!.quota = q;
+      }
+
+      // Miền cho BV chỉ có quota (chưa có trong snapshot)
+      const thieuMien = [...byBv.values()].filter((b) => !b.mien && b.ma_bv).map((b) => b.ma_bv!);
+      for (let i = 0; i < thieuMien.length; i += 200) {
+        const { data, error } = await app.from("v_bv_mien").select("ma_bv, mien").in("ma_bv", thieuMien.slice(i, i + 200));
+        if (error) throw new Error(error.message);
+        for (const m of (data ?? [])) {
+          const b = byBv.get(norm(m.ma_bv));
+          if (b && !b.mien) b.mien = m.mien;
+        }
+      }
+
+      const num = (v: unknown) => Number(v ?? 0);
+      const rows = [...byBv.values()]
+        .filter((b) => !perm.filterMien || perm.filterMien.includes(b.mien as string))
+        .map((b) => ({
+          ma_bv: b.ma_bv, ten_bv: b.ten_bv || b.quota?.khach_hang || b.ma_bv, mien: b.mien,
+          sl_ccdc: b.sl_ccdc, loai: b.loai, ktv: b.ktv,
+          co_quota: !!b.quota,
+          quota_tien_on_hand: num(b.quota?.quota_tien_on_hand),
+          quota_tien_sap_toi: num(b.quota?.quota_tien_sap_toi),
+          thang_thau_sap_toi: b.quota?.thang_thau_sap_toi ?? null,
+          dt_thuc_hien: num(b.quota?.dt_thuc_hien),
+          dt_3_thang: num(b.quota?.dt_3_thang),
+          quota_tien_con_lai: num(b.quota?.quota_tien_con_lai),
+        }));
+
+      return {
+        ok: true, fy, nam_tai_chinh: fyLabel, nhom_san_pham: nhom, nhom_options,
+        snapshot: { id: snap.id, ky_cap_nhat: snap.ky_cap_nhat },
+        current_month: quota[0]?.current_month ?? null,
+        loai_options: [...new Set(rows.flatMap((r) => Object.keys(r.loai)))].sort(),
+        rows,
+      };
+    }
+
     default:
       return { ok: false, error: "unknown_action" };
   }

@@ -51,6 +51,12 @@ Triển khai lần đầu:
 
 Miền của mỗi dòng lấy từ `shared.dm_khach_hang.area` theo mã BV ("Code KH") tại lúc upload (view `app_ccdc.v_bv_mien`). Mã BV thiếu hoặc không có trong danh mục → miền rỗng; màn upload liệt kê các BV này sau khi lưu.
 
+## Phân bổ CCDC theo quota thầu
+
+Màn **Phân bổ** so số CCDC ký gửi (snapshot mới nhất của nhóm SP) với quota thầu còn lại tại từng BV, cùng nhóm SP. Quota còn lại = quota chính thức đã có (thầu cũ + đợt đã tới tháng thầu, theo `shared.app_config.current_month`) − doanh thu thực hiện FY, lấy từ `shared.quota_thau`, `shared.dot_thau`, `shared.sale_target`. Ghép theo mã BV = `ma_khach_hang`.
+
+Triển khai: chạy `sql/migrate_phan_bo_quota.sql` (view `app_ccdc.v_quota_kh_nhom`, chỉ service_role đọc), rồi redeploy `ccdc-api` (action `phan_bo_ccdc`).
+
 ## Secret
 
 `TOKEN_SECRET` là secret chung cho cả Supabase project (đã set từ khi triển khai sale-target/order/kpi). Nếu deploy sang project khác, chạy:
