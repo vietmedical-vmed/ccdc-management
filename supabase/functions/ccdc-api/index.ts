@@ -1032,7 +1032,7 @@ async function handleAction(
       });
       if (error) throw new Error(error.message);
 
-      // Mã BV không có (hoặc thiếu area) trong shared.dm_khach_hang → không lọc được theo miền
+      // Mã BV thiếu hoặc chưa khai báo địa bàn (shared.dm_dia_ban) → không lọc được theo miền
       const { data: unmapped } = await app.from("snapshot_items")
         .select("ma_bv, ten_bv").eq("snapshot_id", snapId).is("mien", null);
       const bvChuaMap = new Map<string, string>();
@@ -1303,10 +1303,11 @@ async function handleAction(
         byBv.get(k)!.quota = q;
       }
 
-      // Miền cho BV chỉ có quota (chưa có trong snapshot)
+      // Miền cho BV chỉ có quota (chưa có trong snapshot): dm_dia_ban theo nhóm SP, tháng hiện hành
       const thieuMien = [...byBv.values()].filter((b) => !b.mien && b.ma_bv).map((b) => b.ma_bv!);
-      for (let i = 0; i < thieuMien.length; i += 200) {
-        const { data, error } = await app.from("v_bv_mien").select("ma_bv, mien").in("ma_bv", thieuMien.slice(i, i + 200));
+      if (thieuMien.length) {
+        const thang = quota[0]?.current_month ?? new Date().toISOString().slice(0, 7);
+        const { data, error } = await app.rpc("fn_mien_bv_list", { p_ma_bv: thieuMien, p_nhom: nhom, p_thang: thang });
         if (error) throw new Error(error.message);
         for (const m of (data ?? [])) {
           const b = byBv.get(norm(m.ma_bv));

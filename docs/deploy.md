@@ -49,7 +49,7 @@ Triển khai lần đầu:
 1. Chạy `sql/migrate_snapshot_ky_gui.sql` trên SQL Editor.
 2. Redeploy `ccdc-api` (thêm action `snapshot_upload`, `snapshot_list`, `snapshot_items`, `snapshot_diff`, `ky_gui_dashboard`).
 
-Miền của mỗi dòng lấy từ `shared.dm_khach_hang.area` theo mã BV ("Code KH") tại lúc upload (view `app_ccdc.v_bv_mien`). Mã BV thiếu hoặc không có trong danh mục → miền rỗng; màn upload liệt kê các BV này sau khi lưu.
+Miền của mỗi dòng lấy từ `shared.dm_dia_ban` (cấu hình địa bàn bên Kế hoạch kinh doanh) theo mã BV ("Code KH") × nhóm SP, còn hiệu lực ở tháng của snapshot (`app_ccdc.fn_mien_bv`; chạy `sql/migrate_mien_dia_ban.sql`). Chưa khai báo đúng nhóm SP thì lấy theo khai báo khác của cùng KH. Mã BV thiếu hoặc chưa có địa bàn → miền rỗng; màn upload liệt kê các BV này sau khi lưu.
 
 ## Phân bổ CCDC theo quota thầu
 

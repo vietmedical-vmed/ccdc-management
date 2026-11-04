@@ -1,7 +1,7 @@
 // Màn Phân bổ CCDC — so CCDC ký gửi (snapshot mới nhất) với quota thầu còn lại theo BV, cùng nhóm SP.
 // Chỉ số: quota còn lại (VNĐ) / SL CCDC. Ngưỡng T chỉnh được (mặc định = trung vị):
 //   Cân nhắc rút : có CCDC, quota/CCDC < T/2 (hoặc không có quota FY)
-//   Theo dõi     : như trên nhưng có thầu sắp tới
+//   Theo dõi     : như trên nhưng có quota upcoming
 //   Cần thêm     : có CCDC, quota/CCDC ≥ 2T
 //   Thiếu CCDC   : chưa có CCDC, quota còn lại ≥ T
 (function () {
@@ -45,7 +45,8 @@
         if (!r.co_quota || per < T / 2) {
           status = r.quota_tien_sap_toi > 0 ? "theo_doi" : "rut";
           ly_do = !r.co_quota ? "Không có quota FY trong kế hoạch"
-            : "Quota còn lại/CCDC thấp" + (r.quota_tien_sap_toi > 0 ? ", có thầu sắp tới " + fmtKy(r.thang_thau_sap_toi) : "");
+            : "Quota còn lại/CCDC thấp" + (r.quota_tien_sap_toi > 0
+              ? ", có quota upcoming" + (r.thang_thau_sap_toi ? " " + fmtKy(r.thang_thau_sap_toi + "-01") : "") : "");
         } else if (per >= 2 * T) { status = "them"; ly_do = "Quota còn lại/CCDC cao"; }
         else status = "giu";
       } else if (conLai >= T && T > 0) { status = "thieu"; ly_do = "Có quota, chưa ký gửi CCDC"; }
@@ -76,7 +77,7 @@
     return moves;
   }
 
-  const bvCell = (r) => h("div", { className: "min-w-0" },
+  const bvCell = (r) => h("div", { className: "min-w-[12rem]" },
     h("div", { className: "text-slate-800" },
       r.ma_bv && h("span", { className: "font-mono text-[11px] text-slate-400 mr-1.5" }, r.ma_bv), r.ten_bv || "—"),
     h("div", { className: "text-[11px] text-slate-400" }, r.mien || "chưa xác định miền"));
@@ -151,7 +152,7 @@
       h("div", { className: "text-xs text-slate-500" },
         "CCDC: snapshot ", fmtKy(data.snapshot.ky_cap_nhat), " · Quota: ", data.nam_tai_chinh, " (chính thức)",
         data.current_month ? ", thực hiện tính đến " + fmtKy(data.current_month + "-01") : "",
-        " · Quota còn lại = quota đã có (thầu cũ + đợt đã tới tháng) − doanh thu thực hiện FY.",
+        " · Quota on hand = thầu cũ + đợt đã tới tháng thầu; upcoming = đợt chưa tới tháng. Quota còn lại = on hand − doanh thu thực hiện FY.",
         loai && h("span", { className: "text-amber-700" }, " Đang lọc 1 loại CCDC: quota vẫn là của cả nhóm SP, chưa tách theo loại.")),
 
       h("div", { className: card + " p-4 flex flex-wrap items-center gap-3 text-sm" },
@@ -169,7 +170,10 @@
           "Cân nhắc rút khi < ", fmtTien(T / 2), " · Cần thêm khi ≥ ", fmtTien(2 * T), " · Thiếu CCDC khi chưa ký gửi mà quota còn lại ≥ ", fmtTien(T)),
       ),
 
-      h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
+      h("div", { className: "grid grid-cols-2 md:grid-cols-5 gap-3" },
+        kpi("Quota on hand", fmtTien(rows.reduce((s, r) => s + r.quota_tien_on_hand, 0)),
+          "Upcoming " + fmtTien(rows.reduce((s, r) => s + r.quota_tien_sap_toi, 0)) +
+          " · còn lại " + fmtTien(rows.reduce((s, r) => s + r.quota_tien_con_lai, 0))),
         kpi("BV đang ký gửi", fmtInt(coCcdc.length), "SL CCDC " + fmtInt(coCcdc.reduce((s, r) => s + r.sl, 0))),
         kpi("Cân nhắc rút", fmtInt(count("rut").length), "SL dư ước tính " + fmtInt(count("rut").reduce((s, r) => s + r.du, 0))),
         kpi("Thiếu / cần thêm", fmtInt(count("thieu").length + count("them").length),
@@ -200,11 +204,11 @@
           }, label + " (" + list.length + ")"))),
         h("div", { className: "overflow-x-auto" }, h("table", { className: "w-full text-sm" },
           h("thead", { className: "bg-slate-50" }, h("tr", null,
-            th("Bệnh viện"), th("Đề xuất"), th("SL CCDC", true), th("Quota còn lại", true), th("Thầu sắp tới", true),
-            th("DT 3 tháng", true), th("Quota / CCDC", true), th("SL nên có", true))),
+            th("Bệnh viện"), th("Đề xuất"), th("SL CCDC", true), th("Quota on hand", true), th("Đã thực hiện", true),
+            th("Quota còn lại", true), th("Quota upcoming", true), th("DT 3 tháng", true), th("Còn lại / CCDC", true), th("SL nên có", true))),
           h("tbody", null,
             shown.length === 0
-              ? h("tr", null, h("td", { colSpan: 8, className: "px-3 py-8 text-center text-sm text-slate-400" }, "Không có BV nào"))
+              ? h("tr", null, h("td", { colSpan: 10, className: "px-3 py-8 text-center text-sm text-slate-400" }, "Không có BV nào"))
               : shown.map((r) => h("tr", { key: r.ma_bv || r.ten_bv, className: "border-t border-slate-100 align-top" },
                   h("td", { className: "px-3 py-2" }, bvCell(r)),
                   h("td", { className: "px-3 py-2" },
@@ -212,12 +216,14 @@
                     r.ly_do && h("div", { className: "text-[11px] text-slate-400 mt-0.5" }, r.ly_do)),
                   h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold",
                     title: Object.entries(r.loai).map(([l, n]) => l + ": " + n).join("\n") }, fmtInt(r.sl)),
-                  h("td", { className: "px-3 py-2 text-right tabular-nums" }, r.co_quota ? fmtTien(r.quota_tien_con_lai) : h("span", { className: "text-slate-400" }, "—")),
+                  h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-600" }, r.co_quota ? fmtTien(r.quota_tien_on_hand) : h("span", { className: "text-slate-400" }, "—")),
+                  h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-600" }, r.co_quota ? fmtTien(r.dt_thuc_hien) : "—"),
+                  h("td", { className: "px-3 py-2 text-right tabular-nums font-semibold" }, r.co_quota ? fmtTien(r.quota_tien_con_lai) : h("span", { className: "text-slate-400" }, "—")),
                   h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-600" },
                     r.quota_tien_sap_toi > 0 ? h("span", null, fmtTien(r.quota_tien_sap_toi),
                       r.thang_thau_sap_toi && h("div", { className: "text-[11px] text-slate-400" }, fmtKy(r.thang_thau_sap_toi + "-01"))) : "—"),
                   h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-600" }, r.co_quota ? fmtTien(r.dt_3_thang) : "—"),
-                  h("td", { className: "px-3 py-2 text-right tabular-nums" }, r.per == null ? "—" : fmtTien(r.per)),
+                  h("td", { className: "px-3 py-2 text-right tabular-nums" }, r.co_quota && r.per != null ? fmtTien(r.per) : "—"),
                   h("td", { className: "px-3 py-2 text-right tabular-nums text-slate-600" }, r.co_quota ? fmtInt(r.dangGiu) : "—"),
                 ))))),
       ),
