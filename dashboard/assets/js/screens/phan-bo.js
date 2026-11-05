@@ -117,9 +117,10 @@
       { key: "co_ccdc", label: "Đang ký gửi", list: coCcdc },
       { key: "tat_ca", label: "Tất cả BV", list: rows },
     ];
+    const mienOrder = (m) => m === "Miền Bắc" ? 0 : m === "Miền Nam" ? 1 : 2;
     const shown = (tabs.find((t) => t.key === tab) || tabs[0]).list.slice()
-      .sort((a, b) => ((STATUS[a.status] || { order: 9 }).order - (STATUS[b.status] || { order: 9 }).order)
-        || ((a.per ?? Infinity) - (b.per ?? Infinity)) || (b.quota_tien_con_lai - a.quota_tien_con_lai));
+      .sort((a, b) => (mienOrder(a.mien) - mienOrder(b.mien))
+        || ((b.quota_tien_on_hand + b.quota_tien_sap_toi) - (a.quota_tien_on_hand + a.quota_tien_sap_toi)));
     const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
 
     return h("div", { className: "space-y-4" },
