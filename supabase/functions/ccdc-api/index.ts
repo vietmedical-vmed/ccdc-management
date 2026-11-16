@@ -137,7 +137,7 @@ async function fetchAll(build: (from: number, to: number) => any): Promise<any[]
 
 // Đọc qua view v_snapshot_items: có thêm nguyên giá, số tháng đã khấu hao, GTCL tại kỳ snapshot
 const SNAP_ITEM_COLS = "id, ma_bv, ten_bv, ma_bravo, ma_ncc, ten_ccdc, serial, dvt, so_luong, ngay_ky_gui, ktv_phu_trach, note, mien, " +
-  "ngay_dat, chi_phi_khau_hao, so_nam_khau_hao, nguyen_gia, thang_da_kh, gtcl";
+  "ngay_dat, chi_phi_khau_hao, so_nam_khau_hao, nguyen_gia, thang_da_kh, gtcl, phan_loai";
 
 function fetchSnapshotItems(admin: SupabaseClient, snapshotIds: number[], filterMien: string[] | null) {
   return fetchAll((from, to) => {
@@ -1297,19 +1297,23 @@ async function handleAction(
 
       type Row = {
         ma_bv: string | null; ten_bv: string | null; mien: string | null;
-        sl_ccdc: number; loai: Record<string, number>; ktv: string[];
+        sl_ccdc: number; sl_tb: number; loai: Record<string, number>; ktv: string[];
         nguyen_gia: number; gtcl: number; sl_co_gia: number;
         quota: any | null;
       };
       const byBv = new Map<string, Row>();
       for (const r of items) {
         const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
         const b = byBv.get(k)!;
         const sl = Number(r.so_luong ?? 0);
-        b.sl_ccdc += sl;
-        const l = loaiOf(r.ten_ccdc);
-        b.loai[l] = (b.loai[l] ?? 0) + sl;
+        // Thiết bị đếm riêng; phân bổ theo quota (loại, ngưỡng) chỉ tính CCDC
+        if (r.phan_loai === "TB") b.sl_tb += sl;
+        else {
+          b.sl_ccdc += sl;
+          const l = loaiOf(r.ten_ccdc);
+          b.loai[l] = (b.loai[l] ?? 0) + sl;
+        }
         if (r.ktv_phu_trach && !b.ktv.includes(r.ktv_phu_trach)) b.ktv.push(r.ktv_phu_trach);
         if (r.gtcl != null) {
           b.nguyen_gia += Number(r.nguyen_gia ?? 0);
@@ -1320,7 +1324,7 @@ async function handleAction(
       for (const q of quota) {
         if (!q.ma_khach_hang) continue;
         const k = norm(q.ma_khach_hang);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
         byBv.get(k)!.quota = q;
       }
 
@@ -1356,7 +1360,7 @@ async function handleAction(
         .map((b) => ({
           ma_bv: b.ma_bv, mien: b.mien,
           ten_bv: (b.ma_bv && tenBv.get(norm(b.ma_bv))) || b.ten_bv || b.quota?.khach_hang || b.ma_bv,
-          sl_ccdc: b.sl_ccdc, loai: b.loai, ktv: b.ktv,
+          sl_ccdc: b.sl_ccdc, sl_tb: b.sl_tb, loai: b.loai, ktv: b.ktv,
           co_quota: !!b.quota,
           quota_tien_on_hand: num(b.quota?.quota_tien_on_hand),
           quota_tien_sap_toi: num(b.quota?.quota_tien_sap_toi),

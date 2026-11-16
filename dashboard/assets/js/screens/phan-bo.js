@@ -115,7 +115,7 @@
       h(Empty, null, "Chưa có snapshot ký gửi — vào tab Chi tiết theo kỳ để upload."));
 
     const count = (s) => rows.filter((r) => r.status === s);
-    const coCcdc = rows.filter((r) => r.sl > 0);
+    const coCcdc = rows.filter((r) => r.sl > 0 || r.sl_tb > 0);
     const khongQuota = coCcdc.filter((r) => !r.co_quota);
     const tabs = [
       { key: "de_xuat", label: "Cần xử lý", list: rows.filter((r) => ["rut", "theo_doi", "thieu", "them"].includes(r.status)) },
@@ -159,7 +159,7 @@
       h("div", { className: "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" },
         h(StatCard, { label: "Quota khả dụng", value: fmtTien(sum("quota_tien_con_lai")), accent: true,
           sub: "Onhand " + fmtTien(sum("quota_tien_on_hand")) + " · Upcoming " + fmtTien(sum("quota_tien_sap_toi")) }),
-        h(StatCard, { label: "BV đang ký gửi", value: fmtInt(coCcdc.length), sub: "SL CCDC " + fmtInt(coCcdc.reduce((s, r) => s + r.sl, 0)) }),
+        h(StatCard, { label: "BV đang ký gửi", value: fmtInt(coCcdc.length), sub: "SL CCDC " + fmtInt(coCcdc.reduce((s, r) => s + r.sl, 0)) + " · SL TB " + fmtInt(sum("sl_tb")) }),
         h(StatCard, { label: "Cân nhắc rút", swatch: "bg-red-500", value: fmtInt(count("rut").length), sub: "SL dư ước tính " + fmtInt(count("rut").reduce((s, r) => s + r.du, 0)) }),
         h(StatCard, { label: "Thiếu / cần thêm", swatch: "bg-blue-500", value: fmtInt(count("thieu").length + count("them").length), sub: "SL cần ước tính " + fmtInt(sum("can")) }),
         h(StatCard, { label: "GTCL thiết bị", value: fmtTien(sum("gtcl")),
@@ -190,22 +190,23 @@
           " · Tỷ suất ĐT = GTCL thiết bị / (Quota khả dụng + Upcoming)",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
-        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1400px]" },
+        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1480px]" },
           h("thead", null, h("tr", { className: T.headRow },
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Miền"), h("th", { className: T.th() }, "Bệnh viện"),
-            h("th", { className: T.th(true) }, "SL CCDC"), h("th", { className: T.th(true) }, "Quota Onhand"), h("th", { className: T.th(true) }, "Quota Upcoming"),
+            h("th", { className: T.th(true) }, "SL CCDC"), h("th", { className: T.th(true) }, "SL TB"), h("th", { className: T.th(true) }, "Quota Onhand"), h("th", { className: T.th(true) }, "Quota Upcoming"),
             h("th", { className: T.th(true) }, "TH YTD"), h("th", { className: T.th(true) }, "Quota khả dụng"),
             h("th", { className: T.th(true) }, "Khả dụng / CCDC"), h("th", { className: T.th(true) }, "SL nên có"),
             h("th", { className: T.th(true) }, "GTCL thiết bị"), h("th", { className: T.th(true) }, "Tỷ suất ĐT"),
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Đề xuất"))),
           h("tbody", null,
             shown.length === 0
-              ? h("tr", null, h("td", { colSpan: 12, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
+              ? h("tr", null, h("td", { colSpan: 13, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
               : shown.map((r, i) => h("tr", { key: r.ma_bv || r.ten_bv, className: T.row(i) + " align-top" },
                   h("td", { className: "whitespace-nowrap px-4 py-2 " + (r.mien ? "text-slate-700" : "italic text-slate-400") }, r.mien || "chưa xác định"),
                   h("td", { className: T.td + " min-w-[14rem] text-slate-800" },
                     r.ma_bv && h("span", { className: "mr-1.5 font-mono text-[11px] text-slate-400" }, r.ma_bv), r.ten_bv || "—"),
                   h("td", { className: T.num + " font-semibold", title: Object.entries(r.loai).map(([l, n]) => l + ": " + n).join("\n") }, fmtInt(r.sl)),
+                  h("td", { className: T.num + " text-slate-700" }, r.sl_tb > 0 ? fmtInt(r.sl_tb) : "—"),
                   h("td", { className: T.num + " text-slate-600" }, r.co_quota ? fmtTien(r.quota_tien_on_hand) : "—"),
                   h("td", { className: T.num + " text-slate-600" },
                     r.quota_tien_sap_toi > 0 ? h("span", null, fmtTien(r.quota_tien_sap_toi),
