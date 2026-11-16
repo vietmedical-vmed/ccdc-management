@@ -1268,8 +1268,8 @@ async function handleAction(
 
     // ── Phân bổ CCDC: CCDC ký gửi (snapshot mới nhất) × quota thầu còn lại theo BV ──
     // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư,
-    //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12T,
-    //   Hệ số đầu tư         = Dthu TH 12T / khấu hao 12T (lần),
+    //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12 tháng mặc định (1 năm),
+    //   Hệ số đầu tư         = Dthu TH 12T / khấu hao 12 tháng (lần),
     //   Hệ số đầu tư dự kiến = quota / khấu hao thiết bị trên CÙNG kỳ dự kiến (lần):
     //     kỳ = tháng hiện tại → min(tháng hết hiệu lực quota muộn nhất, tháng hết khấu hao muộn nhất);
     //     quota mỗi đợt phân bổ đều theo thời gian hiệu lực, chỉ lấy phần rơi vào kỳ.
@@ -1306,17 +1306,13 @@ async function handleAction(
       const monthIdx = (d: string) => { const [y, m] = d.slice(0, 7).split("-").map(Number); return y * 12 + m - 1; };
       const winTo = monthIdx(curMonth) - 1, winFrom = winTo - 11;
       const idxLabel = (i: number) => Math.floor(i / 12) + "-" + String(i % 12 + 1).padStart(2, "0");
-      // Khấu hao đường thẳng theo tháng, từ tháng ký gửi, rơi vào cửa sổ 12T.
-      // Không có ngày ký gửi → coi như đã đặt trước cửa sổ.
+      // Khấu hao 12 tháng mặc định (1 năm khấu hao đường thẳng) của mỗi thiết bị có giá,
+      // không phụ thuộc ngày ký gửi. Thời gian khấu hao < 12 tháng → cả nguyên giá.
       const khauHao12t = (r: any) => {
         const cost = Number(r.chi_phi_khau_hao ?? 0) * Number(r.so_luong ?? 0);
         const soThang = Math.round(Number(r.so_nam_khau_hao ?? 0) * 12);
         if (!(cost > 0) || !(soThang > 0)) return 0;
-        const ngay = r.ngay_ky_gui || r.ngay_dat;
-        const batDau = ngay ? monthIdx(String(ngay)) : winFrom;
-        const ketThuc = batDau + soThang - 1;
-        const trung = Math.max(0, Math.min(ketThuc, winTo) - Math.max(batDau, winFrom) + 1);
-        return cost / soThang * trung;
+        return cost / soThang * Math.min(12, soThang);
       };
       const dtByKh = new Map<string, number>();
       for (const d of dt12) dtByKh.set(String(d.ma_khach_hang).trim().toUpperCase(), Number(d.dt_12t ?? 0));

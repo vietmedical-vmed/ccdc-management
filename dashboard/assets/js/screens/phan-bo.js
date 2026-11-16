@@ -114,7 +114,7 @@
         subtitle: "Quota Onhand = thầu cũ + đợt đã tới tháng thầu · Quota Upcoming = đợt chưa tới tháng · Quota khả dụng = Onhand − TH YTD" +
           (data.dt_12t_tu ? " · Dthu TH 12T = " + fmtKy(data.dt_12t_tu + "-01") + "–" + fmtKy(data.dt_12t_den + "-01") : " · Dthu TH 12T") +
           ", xanh khi > " + sanTy + " tỷ" +
-          " · Hệ số đầu tư = Dthu TH 12T / khấu hao TB 12T" +
+          " · Hệ số đầu tư = Dthu TH 12T / khấu hao TB 12 tháng (1 năm khấu hao)" +
           " · Hệ số đầu tư dự kiến = quota / khấu hao TB trên cùng kỳ (từ tháng này tới khi hết hiệu lực quota hoặc hết khấu hao, mốc nào sớm hơn)",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
@@ -144,7 +144,7 @@
                   h("td", { className: T.num + (r.dt_12t > sanTy * 1e9 ? " bg-emerald-50 font-semibold text-emerald-700" : " text-slate-600") },
                     r.dt_12t > 0 ? fmtTien(r.dt_12t) : "—"),
                   h("td", { className: T.num + " font-semibold " + hsTone(r.he_so_dau_tu),
-                    title: r.khau_hao_12t > 0 ? "Khấu hao 12T " + fmtInt(r.khau_hao_12t) : undefined },
+                    title: r.khau_hao_12t > 0 ? "Khấu hao 12 tháng " + fmtInt(r.khau_hao_12t) : undefined },
                     fmtLan(r.he_so_dau_tu)),
                   h("td", { className: T.num + " text-slate-700",
                     title: r.gtcl > 0 ? "Nguyên giá " + fmtInt(r.nguyen_gia) + " · " + fmtInt(r.sl_co_gia) + " thiết bị có giá" : undefined },
