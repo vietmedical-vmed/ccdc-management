@@ -135,11 +135,13 @@ async function fetchAll(build: (from: number, to: number) => any): Promise<any[]
   }
 }
 
-const SNAP_ITEM_COLS = "id, ma_bv, ten_bv, ma_bravo, ma_ncc, ten_ccdc, serial, dvt, so_luong, ngay_ky_gui, ktv_phu_trach, note, mien";
+// Đọc qua view v_snapshot_items: có thêm nguyên giá, số tháng đã khấu hao, GTCL tại kỳ snapshot
+const SNAP_ITEM_COLS = "id, ma_bv, ten_bv, ma_bravo, ma_ncc, ten_ccdc, serial, dvt, so_luong, ngay_ky_gui, ktv_phu_trach, note, mien, " +
+  "ngay_dat, chi_phi_khau_hao, so_nam_khau_hao, nguyen_gia, thang_da_kh, gtcl";
 
 function fetchSnapshotItems(admin: SupabaseClient, snapshotIds: number[], filterMien: string[] | null) {
   return fetchAll((from, to) => {
-    let q = admin.schema("app_ccdc").from("snapshot_items")
+    let q = admin.schema("app_ccdc").from("v_snapshot_items")
       .select("snapshot_id, " + SNAP_ITEM_COLS).in("snapshot_id", snapshotIds);
     if (filterMien) q = q.in("mien", filterMien);
     return q.order("id").range(from, to);
@@ -1080,7 +1082,7 @@ async function handleAction(
       const search = sanitizeSearch(payload.search ?? "").replace(/"/g, "");
       const mienF = mienScope(perm, payload.mien);
       const rows = await fetchAll((from, to) => {
-        let q = app.from("snapshot_items").select(SNAP_ITEM_COLS).eq("snapshot_id", id);
+        let q = app.from("v_snapshot_items").select(SNAP_ITEM_COLS).eq("snapshot_id", id);
         if (mienF) q = q.in("mien", mienF);
         if (search) {
           q = q.or(["ma_bv", "ten_bv", "ma_bravo", "ma_ncc", "ten_ccdc", "serial", "ktv_phu_trach"]
@@ -1293,23 +1295,29 @@ async function handleAction(
       type Row = {
         ma_bv: string | null; ten_bv: string | null; mien: string | null;
         sl_ccdc: number; loai: Record<string, number>; ktv: string[];
+        nguyen_gia: number; gtcl: number; sl_co_gia: number;
         quota: any | null;
       };
       const byBv = new Map<string, Row>();
       for (const r of items) {
         const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, loai: {}, ktv: [], quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
         const b = byBv.get(k)!;
         const sl = Number(r.so_luong ?? 0);
         b.sl_ccdc += sl;
         const l = loaiOf(r.ten_ccdc);
         b.loai[l] = (b.loai[l] ?? 0) + sl;
         if (r.ktv_phu_trach && !b.ktv.includes(r.ktv_phu_trach)) b.ktv.push(r.ktv_phu_trach);
+        if (r.gtcl != null) {
+          b.nguyen_gia += Number(r.nguyen_gia ?? 0);
+          b.gtcl += Number(r.gtcl);
+          b.sl_co_gia += sl;
+        }
       }
       for (const q of quota) {
         if (!q.ma_khach_hang) continue;
         const k = norm(q.ma_khach_hang);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, loai: {}, ktv: [], quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
         byBv.get(k)!.quota = q;
       }
 
@@ -1339,7 +1347,13 @@ async function handleAction(
           dt_thuc_hien: num(b.quota?.dt_thuc_hien),
           dt_3_thang: num(b.quota?.dt_3_thang),
           quota_tien_con_lai: num(b.quota?.quota_tien_con_lai),
-        }));
+          nguyen_gia: b.nguyen_gia, gtcl: b.gtcl, sl_co_gia: b.sl_co_gia,
+        }))
+        // Tỷ suất đầu tư = GTCL thiết bị đang đặt / quota còn bán được (khả dụng + upcoming)
+        .map((r) => {
+          const quotaConBan = r.quota_tien_con_lai + r.quota_tien_sap_toi;
+          return { ...r, quota_con_ban: quotaConBan, ty_suat_dau_tu: r.gtcl > 0 && quotaConBan > 0 ? r.gtcl / quotaConBan : null };
+        });
 
       return {
         ok: true, fy, nam_tai_chinh: fyLabel, nhom_san_pham: nhom, nhom_options,

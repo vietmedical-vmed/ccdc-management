@@ -6,7 +6,7 @@
   const R = window.CCDC_ROUTER;
   const { useKgFilters, KgFilters, invalidateSnapshots } = window.CCDC_KG;
   const UI = window.CCDC_UI;
-  const { fmtInt, fmtKy, fmtDate, fyOf, fyLabel, useReload, I, StatCard, Panel, Badge, Segmented, SearchInput,
+  const { fmtInt, fmtTien, fmtKy, fmtDate, fyOf, fyLabel, useReload, I, StatCard, Panel, Badge, Segmented, SearchInput,
     LoadingBlock, RefreshingBar, ErrorBox, Empty, Modal, T, btn, input, fieldLabel } = UI;
 
   const pad2 = (n) => String(n).padStart(2, "0");
@@ -25,6 +25,9 @@
     ngay_ky_gui:   ["ngày ký gửi", "ngày kg"],
     ktv_phu_trach: ["ktv phụ trách", "ktv", "pic"],
     note:          ["note", "ghi chú"],
+    ngay_dat:      ["ngày đặt", "ngày đặt máy"],
+    chi_phi_khau_hao: ["chi phí (tính khấu hao)", "chi phí tính khấu hao", "chi phí khấu hao", "nguyên giá"],
+    so_nam_khau_hao:  ["số năm khấu hao", "thời gian khấu hao (năm)", "số năm kh"],
   };
   const ALIAS_TO_FIELD = {};
   for (const [field, list] of Object.entries(HEADER_ALIASES)) for (const a of list) ALIAS_TO_FIELD[a] = field;
@@ -39,6 +42,18 @@
     return iso ? iso[0] : null;
   };
   const cellStr = (v) => (v == null ? "" : String(v).trim());
+  // Số tiền: số thật, hoặc chuỗi "74.592.000" / "74,592,000 đ". Trống hoặc ≤ 0 → null.
+  const parseTien = (v) => {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[.,\s₫đ]/gi, ""));
+    return isFinite(n) && n > 0 ? Math.round(n) : null;
+  };
+  // Số năm: số thật, hoặc chuỗi "5" / "2,5" / "2.5".
+  const parseNam = (v) => {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(String(v).trim().replace(",", "."));
+    return isFinite(n) && n > 0 ? n : null;
+  };
 
   const guessNhomSP = (fileName) => {
     const m = fileName.normalize("NFC").match(/_([^_]+)_Ký gửi/i);
@@ -88,6 +103,9 @@
         ngay_ky_gui: parseDate(get(row, "ngay_ky_gui")),
         ktv_phu_trach: cellStr(get(row, "ktv_phu_trach")) || null,
         note: cellStr(get(row, "note")) || null,
+        ngay_dat: parseDate(get(row, "ngay_dat")),
+        chi_phi_khau_hao: parseTien(get(row, "chi_phi_khau_hao")),
+        so_nam_khau_hao: parseNam(get(row, "so_nam_khau_hao")),
       });
     }
     if (!items.length) throw new Error("Sheet '" + best.name + "' không có dòng dữ liệu");
@@ -104,6 +122,13 @@
     const serials = {};
     for (const i of items) if (i.serial) serials[i.serial] = (serials[i.serial] || 0) + 1;
     const dupSerial = Object.entries(serials).filter(([, n]) => n > 1).map(([s]) => s);
+    if (colMap.chi_phi_khau_hao != null) {
+      const coGia = items.filter((i) => i.chi_phi_khau_hao);
+      const thieuNgay = coGia.filter((i) => !i.ngay_dat && !i.ngay_ky_gui).length;
+      const thieuNam = coGia.filter((i) => !i.so_nam_khau_hao).length;
+      if (thieuNgay) warnings.push(thieuNgay + " dòng có chi phí khấu hao nhưng thiếu ngày đặt (tính như chưa khấu hao)");
+      if (thieuNam) warnings.push(thieuNam + " dòng có chi phí khấu hao nhưng thiếu số năm khấu hao (không trừ khấu hao)");
+    }
     if (dupSerial.length) warnings.push("Serial trùng: " + dupSerial.slice(0, 5).join(", ") + (dupSerial.length > 5 ? "…" : ""));
 
     return { sheetName: best.name, items, fields: Object.keys(colMap), warnings };
@@ -204,8 +229,8 @@
                 h("div", { className: "scroll-shadow max-h-60 overflow-auto rounded-md border border-slate-200" },
                   h("table", { className: T.table + " text-[12px]" },
                     h("thead", { className: "sticky top-0" }, h("tr", { className: T.headRow },
-                      ["Mã BV", "Tên BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "KTV"].map((c, i) =>
-                        h("th", { key: c, className: T.th(i === 5) }, c)))),
+                      ["Mã BV", "Tên BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "Ngày đặt", "Chi phí KH", "Năm KH", "KTV"].map((c, i) =>
+                        h("th", { key: c, className: T.th(i === 5 || i === 8 || i === 9) }, c)))),
                     h("tbody", null,
                       preview.items.slice(0, 30).map((it, i) => h("tr", { key: i, className: T.row(i) },
                         h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.ma_bv || "—"),
@@ -215,8 +240,11 @@
                         h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.serial || "—"),
                         h("td", { className: "px-3 py-1 text-right tabular-nums" }, it.so_luong),
                         h("td", { className: "whitespace-nowrap px-3 py-1 tabular-nums" }, fmtDate(it.ngay_ky_gui)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 tabular-nums" }, fmtDate(it.ngay_dat)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1 text-right tabular-nums" }, it.chi_phi_khau_hao ? fmtInt(it.chi_phi_khau_hao) : "—"),
+                        h("td", { className: "px-3 py-1 text-right tabular-nums" }, it.so_nam_khau_hao ?? "—"),
                         h("td", { className: "whitespace-nowrap px-3 py-1 text-slate-600" }, it.ktv_phu_trach || "—"))),
-                      preview.items.length > 30 && h("tr", null, h("td", { colSpan: 8, className: "px-3 py-2 text-center text-slate-400" },
+                      preview.items.length > 30 && h("tr", null, h("td", { colSpan: 11, className: "px-3 py-2 text-center text-slate-400" },
                         "… và " + (preview.items.length - 30) + " dòng nữa"))))))),
             h("div", { className: "flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3" },
               h("button", { type: "button", onClick: onClose, disabled: busy, className: btn.secondary }, "Huỷ"),
@@ -331,25 +359,28 @@
       error ? h("div", { className: "p-4" }, h(LoadingBlock, { error }))
       : !items ? h(LoadingBlock)
       : h("div", { className: "scroll-shadow overflow-x-auto" },
-          h("table", { className: T.table + " min-w-[1000px]" },
+          h("table", { className: T.table + " min-w-[1320px]" },
             h("thead", null, h("tr", { className: T.headRow },
-              ["Mã Bravo", "Mã NCC", "Tên CCDC", "Serial", "ĐVT", "SL", "Ngày KG", "KTV", "Note"].map((c, i) => h("th", { key: c, className: T.th(i === 5) }, c)))),
+              ["Mã Bravo", "Mã NCC", "Tên CCDC", "Serial", "ĐVT", "SL", "Ngày KG", "Ngày đặt", "Nguyên giá", "Năm KH", "GTCL", "KTV", "Note"]
+                .map((c, i) => h("th", { key: c, className: T.th(i === 5 || (i >= 8 && i <= 10)) }, c)))),
             h("tbody", null,
               grouped.length === 0
-                ? h("tr", null, h("td", { colSpan: 9, className: "px-3 py-8 text-center text-slate-400" }, "Không có dòng nào khớp"))
+                ? h("tr", null, h("td", { colSpan: 13, className: "px-3 py-8 text-center text-slate-400" }, "Không có dòng nào khớp"))
                 : grouped.flatMap(([bv, g]) => {
                     const isCol = collapsed[bv];
                     const sl = g.rows.reduce((s, r) => s + Number(r.so_luong || 0), 0);
+                    const gtcl = g.rows.reduce((s, r) => s + Number(r.gtcl || 0), 0);
                     return [
                       h("tr", { key: "g|" + bv, onClick: () => setCollapsed((c) => ({ ...c, [bv]: !c[bv] })),
                         className: "cursor-pointer select-none border-t border-slate-200 bg-slate-50 hover:bg-blue-50/40" },
-                        h("td", { colSpan: 9, className: "px-3 py-1.5" },
+                        h("td", { colSpan: 13, className: "px-3 py-1.5" },
                           h("div", { className: "flex items-center gap-2" },
                             h("span", { className: "inline-block w-3 text-slate-400", style: { transform: isCol ? "none" : "rotate(90deg)", transition: "transform 120ms" } }, "▸"),
                             g.ma_bv && h("span", { className: "font-mono text-[11px] text-slate-400" }, g.ma_bv),
                             h("span", { className: "font-semibold text-slate-800" }, bv),
                             g.mien ? h("span", { className: "text-[11px] text-slate-400" }, g.mien) : h(Badge, { tone: "amber" }, "chưa xác định miền"),
-                            h("span", { className: "text-[12px] text-slate-500" }, "· " + g.rows.length + " dòng · SL ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtInt(sl)))))),
+                            h("span", { className: "text-[12px] text-slate-500" }, "· " + g.rows.length + " dòng · SL ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtInt(sl)),
+                              gtcl > 0 && h(React.Fragment, null, " · GTCL ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtTien(gtcl))))))),
                       ...(isCol ? [] : g.rows.map((r, i) => h("tr", { key: r.id, className: T.row(i) },
                         h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-800" }, r.ma_bravo || "—"),
                         h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-500" }, r.ma_ncc || "—"),
@@ -358,6 +389,12 @@
                         h("td", { className: "px-3 py-1.5 text-[12px] text-slate-500" }, r.dvt || "—"),
                         h("td", { className: "px-3 py-1.5 text-right font-semibold tabular-nums" }, fmtInt(r.so_luong)),
                         h("td", { className: "whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600" }, fmtDate(r.ngay_ky_gui)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600" }, fmtDate(r.ngay_dat)),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-slate-600" }, r.nguyen_gia != null ? fmtInt(r.nguyen_gia) : "—"),
+                        h("td", { className: "px-3 py-1.5 text-right tabular-nums text-slate-500" }, r.so_nam_khau_hao != null ? Number(r.so_nam_khau_hao) : "—"),
+                        h("td", { className: "whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums text-slate-800",
+                          title: r.gtcl != null ? "Đã khấu hao " + Number(r.thang_da_kh || 0) + " tháng" : undefined },
+                          r.gtcl != null ? fmtInt(r.gtcl) : "—"),
                         h("td", { className: "whitespace-nowrap px-3 py-1.5 text-slate-700" }, r.ktv_phu_trach || "—"),
                         h("td", { className: "px-3 py-1.5 text-[12px] text-slate-500" }, r.note || "—")))),
                     ];

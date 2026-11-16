@@ -4,6 +4,8 @@
 //   Theo dõi     : như trên nhưng có Quota Upcoming
 //   Cần thêm     : có CCDC, quota/CCDC ≥ 2T
 //   Thiếu CCDC   : chưa có CCDC, quota khả dụng ≥ T
+// Tỷ suất đầu tư = GTCL thiết bị đang đặt tại BV / (Quota khả dụng + Quota Upcoming).
+//   GTCL khấu hao đường thẳng theo tháng từ ngày đặt tới kỳ snapshot (view v_snapshot_items).
 (function () {
   const { useState, useEffect, useMemo } = React;
   const h = React.createElement;
@@ -18,6 +20,9 @@
     const m = Math.floor(s.length / 2);
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   };
+
+  const fmtPct = (x) => x == null ? "—" : (x * 100).toFixed(x >= 0.1 ? 0 : 1) + "%";
+  const tyTone = (x) => x == null ? "text-slate-400" : x >= 1 ? "text-red-600" : x >= 0.5 ? "text-amber-600" : "text-slate-800";
 
   const STATUS = {
     rut:      { label: "Cân nhắc rút", tone: "red",   order: 0 },
@@ -122,6 +127,10 @@
       .sort((a, b) => (mienOrder(a.mien) - mienOrder(b.mien))
         || ((b.quota_tien_on_hand + b.quota_tien_sap_toi) - (a.quota_tien_on_hand + a.quota_tien_sap_toi)));
     const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
+    const coGtcl = rows.filter((r) => r.gtcl > 0);
+    // Tỷ suất chung: chỉ các BV đang đặt thiết bị có giá
+    const quotaCoGtcl = coGtcl.reduce((s, r) => s + r.quota_con_ban, 0);
+    const tySuatChung = quotaCoGtcl > 0 ? sum("gtcl") / quotaCoGtcl : null;
 
     return h("div", { className: "space-y-4" },
       filters,
@@ -147,12 +156,14 @@
           " · Quota: ", h("b", { className: "font-semibold text-slate-700" }, data.nam_tai_chinh),
           data.current_month ? h(React.Fragment, null, " · TH đến ", h("b", { className: "font-semibold text-slate-700" }, fmtKy(data.current_month + "-01"))) : null)),
 
-      h("div", { className: "grid grid-cols-2 gap-3 md:grid-cols-5" },
+      h("div", { className: "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" },
         h(StatCard, { label: "Quota khả dụng", value: fmtTien(sum("quota_tien_con_lai")), accent: true,
           sub: "Onhand " + fmtTien(sum("quota_tien_on_hand")) + " · Upcoming " + fmtTien(sum("quota_tien_sap_toi")) }),
         h(StatCard, { label: "BV đang ký gửi", value: fmtInt(coCcdc.length), sub: "SL CCDC " + fmtInt(coCcdc.reduce((s, r) => s + r.sl, 0)) }),
         h(StatCard, { label: "Cân nhắc rút", swatch: "bg-red-500", value: fmtInt(count("rut").length), sub: "SL dư ước tính " + fmtInt(count("rut").reduce((s, r) => s + r.du, 0)) }),
         h(StatCard, { label: "Thiếu / cần thêm", swatch: "bg-blue-500", value: fmtInt(count("thieu").length + count("them").length), sub: "SL cần ước tính " + fmtInt(sum("can")) }),
+        h(StatCard, { label: "GTCL thiết bị", value: fmtTien(sum("gtcl")),
+          sub: "Nguyên giá " + fmtTien(sum("nguyen_gia")) + " · Tỷ suất ĐT " + fmtPct(tySuatChung) }),
         h(StatCard, { label: "Ký gửi nhưng không có quota", swatch: "bg-amber-500", value: fmtInt(khongQuota.length), sub: khongQuota.length ? "Kiểm tra mã BV ↔ mã KH" : "Mọi BV ký gửi đều có quota" })),
 
       h(Panel, {
@@ -175,19 +186,21 @@
 
       h(Panel, {
         title: "Quota và CCDC theo bệnh viện",
-        subtitle: "Quota Onhand = thầu cũ + đợt đã tới tháng thầu · Quota Upcoming = đợt chưa tới tháng · Quota khả dụng = Onhand − TH YTD",
+        subtitle: "Quota Onhand = thầu cũ + đợt đã tới tháng thầu · Quota Upcoming = đợt chưa tới tháng · Quota khả dụng = Onhand − TH YTD" +
+          " · Tỷ suất ĐT = GTCL thiết bị / (Quota khả dụng + Upcoming)",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
-        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1200px]" },
+        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1400px]" },
           h("thead", null, h("tr", { className: T.headRow },
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Miền"), h("th", { className: T.th() }, "Bệnh viện"),
             h("th", { className: T.th(true) }, "SL CCDC"), h("th", { className: T.th(true) }, "Quota Onhand"), h("th", { className: T.th(true) }, "Quota Upcoming"),
             h("th", { className: T.th(true) }, "TH YTD"), h("th", { className: T.th(true) }, "Quota khả dụng"),
             h("th", { className: T.th(true) }, "Khả dụng / CCDC"), h("th", { className: T.th(true) }, "SL nên có"),
+            h("th", { className: T.th(true) }, "GTCL thiết bị"), h("th", { className: T.th(true) }, "Tỷ suất ĐT"),
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Đề xuất"))),
           h("tbody", null,
             shown.length === 0
-              ? h("tr", null, h("td", { colSpan: 10, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
+              ? h("tr", null, h("td", { colSpan: 12, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
               : shown.map((r, i) => h("tr", { key: r.ma_bv || r.ten_bv, className: T.row(i) + " align-top" },
                   h("td", { className: "whitespace-nowrap px-4 py-2 " + (r.mien ? "text-slate-700" : "italic text-slate-400") }, r.mien || "chưa xác định"),
                   h("td", { className: T.td + " min-w-[14rem] text-slate-800" },
@@ -201,6 +214,11 @@
                   h("td", { className: T.num + " font-semibold text-slate-800" }, r.co_quota ? fmtTien(r.quota_tien_con_lai) : "—"),
                   h("td", { className: T.num }, r.co_quota && r.per != null ? fmtTien(r.per) : "—"),
                   h("td", { className: T.num + " text-slate-600" }, r.co_quota ? fmtInt(r.dangGiu) : "—"),
+                  h("td", { className: T.num + " text-slate-700",
+                    title: r.gtcl > 0 ? "Nguyên giá " + fmtInt(r.nguyen_gia) + " · " + fmtInt(r.sl_co_gia) + " thiết bị có giá" : undefined },
+                    r.gtcl > 0 ? fmtTien(r.gtcl) : "—"),
+                  h("td", { className: T.num + " font-semibold " + tyTone(r.ty_suat_dau_tu) },
+                    r.gtcl > 0 && !(r.quota_con_ban > 0) ? h(Badge, { tone: "red" }, "không quota") : fmtPct(r.ty_suat_dau_tu)),
                   h("td", { className: "px-4 py-2" },
                     r.status && h(Badge, { tone: STATUS[r.status].tone }, STATUS[r.status].label),
                     r.ly_do && h("div", { className: "mt-0.5 max-w-[14rem] text-[11px] text-slate-400" }, r.ly_do)))))))),
