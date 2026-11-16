@@ -1267,7 +1267,8 @@ async function handleAction(
     }
 
     // ── Phân bổ CCDC: CCDC ký gửi (snapshot mới nhất) × quota thầu còn lại theo BV ──
-    // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư.
+    // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư,
+    //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12T, %Utilization = khấu hao 12T / Dthu TH 12T.
     case "phan_bo_ccdc": {
       const app = admin.schema("app_ccdc");
       const fy = Number(payload.fiscal_year) || fyOf(new Date());
@@ -1283,12 +1284,35 @@ async function handleAction(
       if (!nhom) return { ok: true, fy, nhom_options, rows: [] };
       const snap = (snaps ?? []).find((s: any) => s.nhom_san_pham === nhom);
 
-      const [items, quota] = await Promise.all([
+      const [items, quota, dt12, cfg] = await Promise.all([
         fetchSnapshotItems(admin, [snap.id], null),
         fetchAll((from, to) => app.from("v_quota_kh_nhom").select("*")
           .eq("nam_tai_chinh", fyLabel).eq("nhom_san_pham", nhom)
           .order("ma_khach_hang").range(from, to)),
+        fetchAll((from, to) => app.from("v_dt_12t_kh_nhom").select("ma_khach_hang, dt_12t, tu_thang, den_thang")
+          .eq("nhom_san_pham", nhom).order("ma_khach_hang").range(from, to)),
+        admin.schema("shared").from("app_config").select("value").eq("key", "current_month").maybeSingle(),
       ]);
+
+      // Cửa sổ 12 tháng kết thúc ở tháng hiện tại − 1 (cùng cửa sổ với v_dt_12t_kh_nhom)
+      const curMonth = String(cfg.data?.value ?? new Date().toISOString().slice(0, 7)).slice(0, 7);
+      const monthIdx = (d: string) => { const [y, m] = d.slice(0, 7).split("-").map(Number); return y * 12 + m - 1; };
+      const winTo = monthIdx(curMonth) - 1, winFrom = winTo - 11;
+      const idxLabel = (i: number) => Math.floor(i / 12) + "-" + String(i % 12 + 1).padStart(2, "0");
+      // Khấu hao đường thẳng theo tháng, từ tháng ký gửi, rơi vào cửa sổ 12T.
+      // Không có ngày ký gửi → coi như đã đặt trước cửa sổ.
+      const khauHao12t = (r: any) => {
+        const cost = Number(r.chi_phi_khau_hao ?? 0) * Number(r.so_luong ?? 0);
+        const soThang = Math.round(Number(r.so_nam_khau_hao ?? 0) * 12);
+        if (!(cost > 0) || !(soThang > 0)) return 0;
+        const ngay = r.ngay_ky_gui || r.ngay_dat;
+        const batDau = ngay ? monthIdx(String(ngay)) : winFrom;
+        const ketThuc = batDau + soThang - 1;
+        const trung = Math.max(0, Math.min(ketThuc, winTo) - Math.max(batDau, winFrom) + 1);
+        return cost / soThang * trung;
+      };
+      const dtByKh = new Map<string, number>();
+      for (const d of dt12) dtByKh.set(String(d.ma_khach_hang).trim().toUpperCase(), Number(d.dt_12t ?? 0));
 
       // Bỏ số thứ tự bộ ở cuối tên ("CCDC NSK GỐI - NAM - 05" → "CCDC NSK GỐI") để gom theo loại
       const loaiOf = (ten: string) => String(ten ?? "").trim()
@@ -1298,13 +1322,13 @@ async function handleAction(
       type Row = {
         ma_bv: string | null; ten_bv: string | null; mien: string | null;
         sl_ccdc: number; sl_tb: number; loai: Record<string, number>; ktv: string[];
-        nguyen_gia: number; gtcl: number; sl_co_gia: number;
+        nguyen_gia: number; gtcl: number; sl_co_gia: number; khau_hao_12t: number;
         quota: any | null;
       };
       const byBv = new Map<string, Row>();
       for (const r of items) {
         const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, quota: null });
         const b = byBv.get(k)!;
         const sl = Number(r.so_luong ?? 0);
         // Thiết bị đếm riêng; phân bổ theo quota (loại, ngưỡng) chỉ tính CCDC
@@ -1320,11 +1344,12 @@ async function handleAction(
           b.gtcl += Number(r.gtcl);
           b.sl_co_gia += sl;
         }
+        b.khau_hao_12t += khauHao12t(r);
       }
       for (const q of quota) {
         if (!q.ma_khach_hang) continue;
         const k = norm(q.ma_khach_hang);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, quota: null });
         byBv.get(k)!.quota = q;
       }
 
@@ -1369,17 +1394,24 @@ async function handleAction(
           dt_3_thang: num(b.quota?.dt_3_thang),
           quota_tien_con_lai: num(b.quota?.quota_tien_con_lai),
           nguyen_gia: b.nguyen_gia, gtcl: b.gtcl, sl_co_gia: b.sl_co_gia,
+          khau_hao_12t: Math.round(b.khau_hao_12t),
+          dt_12t: b.ma_bv ? (dtByKh.get(norm(b.ma_bv)) ?? 0) : 0,
         }))
         // Tỷ suất đầu tư = GTCL thiết bị đang đặt / quota còn bán được (khả dụng + upcoming)
         .map((r) => {
           const quotaConBan = r.quota_tien_con_lai + r.quota_tien_sap_toi;
-          return { ...r, quota_con_ban: quotaConBan, ty_suat_dau_tu: r.gtcl > 0 && quotaConBan > 0 ? r.gtcl / quotaConBan : null };
+          return {
+            ...r, quota_con_ban: quotaConBan,
+            ty_suat_dau_tu: r.gtcl > 0 && quotaConBan > 0 ? r.gtcl / quotaConBan : null,
+            utilization: r.khau_hao_12t > 0 && r.dt_12t > 0 ? r.khau_hao_12t / r.dt_12t : null,
+          };
         });
 
       return {
         ok: true, fy, nam_tai_chinh: fyLabel, nhom_san_pham: nhom, nhom_options,
         snapshot: { id: snap.id, ky_cap_nhat: snap.ky_cap_nhat },
         current_month: quota[0]?.current_month ?? null,
+        dt_12t_tu: idxLabel(winFrom), dt_12t_den: idxLabel(winTo),
         loai_options: [...new Set(rows.flatMap((r) => Object.keys(r.loai)))].sort(),
         rows,
       };

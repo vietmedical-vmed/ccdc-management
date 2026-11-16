@@ -1,5 +1,7 @@
 // Màn Phân bổ CCDC — CCDC / thiết bị ký gửi (snapshot mới nhất) cạnh quota thầu theo BV, cùng nhóm SP.
 // Quota khả dụng = Quota Onhand − TH YTD.
+// Dthu TH 12T = doanh thu thực hiện 12 tháng tới tháng hiện tại − 1; tô xanh khi > Dthu sàn (mặc định 20 tỷ, lưu theo trình duyệt).
+// %Utilization = khấu hao thiết bị 12T / Dthu TH 12T.
 // Tỷ suất đầu tư = GTCL thiết bị đang đặt tại BV / (Quota khả dụng + Quota Upcoming).
 //   GTCL khấu hao đường thẳng theo tháng từ ngày ký gửi tới kỳ snapshot (view v_snapshot_items).
 (function () {
@@ -11,6 +13,13 @@
     LoadingBlock, RefreshingBar, Empty, T } = window.CCDC_UI;
 
   const fmtPct = (x) => x == null ? "—" : (x * 100).toFixed(x >= 0.1 ? 0 : 1) + "%";
+  const SAN_KEY = "ccdc.phanBo.dthuSanTy";
+  const SAN_MAC_DINH = 20; // tỷ đồng
+  const readSan = () => {
+    try { const v = Number(localStorage.getItem(SAN_KEY)); return v > 0 ? v : SAN_MAC_DINH; } catch { return SAN_MAC_DINH; }
+  };
+  const saveSan = (v) => { try { localStorage.setItem(SAN_KEY, String(v)); } catch { /* bỏ qua */ } };
+
   const tyTone = (x) => x == null ? "text-slate-400" : x >= 1 ? "text-red-600" : x >= 0.5 ? "text-amber-600" : "text-slate-800";
 
   function PhanBoScreen({ user }) {
@@ -21,6 +30,9 @@
     const [error, setError] = useState("");
     const [loai, setLoai] = useState("");
     const [tab, setTab] = useState("co_ccdc");
+    const [sanInput, setSanInput] = useState(() => String(readSan()));
+    const sanTy = Number(sanInput) > 0 ? Number(sanInput) : SAN_MAC_DINH;
+    useEffect(() => { saveSan(sanTy); }, [sanTy]);
 
     useEffect(() => {
       if (f.loading) return;
@@ -64,6 +76,13 @@
 
       h("div", { className: "flex flex-wrap items-center gap-2" },
         h(FilterSelect, { label: "Loại CCDC", searchable: true, options: data.loai_options, selected: loai ? [loai] : [], onChange: (v) => setLoai(v[0] || "") }),
+        h("label", { className: "flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[13px]" },
+          h("span", { className: "text-slate-400" }, "Dthu sàn:"),
+          h("input", {
+            type: "number", min: 0, step: 1, value: sanInput, onChange: (e) => setSanInput(e.target.value),
+            className: "w-14 border-0 bg-transparent p-0 text-right text-[13px] font-medium tabular-nums text-blue-700 outline-none",
+          }),
+          h("span", { className: "text-slate-400" }, "tỷ ₫")),
         h("div", { className: "flex-1" }),
         h("span", { className: "text-[12px] text-slate-500" },
           "CCDC: snapshot ", h("b", { className: "font-semibold text-slate-700" }, fmtKy(data.snapshot.ky_cap_nhat)),
@@ -81,18 +100,21 @@
       h(Panel, {
         title: "Quota và CCDC theo bệnh viện",
         subtitle: "Quota Onhand = thầu cũ + đợt đã tới tháng thầu · Quota Upcoming = đợt chưa tới tháng · Quota khả dụng = Onhand − TH YTD" +
-          " · Tỷ suất ĐT = GTCL thiết bị / (Quota khả dụng + Upcoming)",
+          (data.dt_12t_tu ? " · Dthu TH 12T = " + fmtKy(data.dt_12t_tu + "-01") + "–" + fmtKy(data.dt_12t_den + "-01") : " · Dthu TH 12T") +
+          ", xanh khi > " + sanTy + " tỷ" +
+          " · %Utilization = khấu hao TB 12T / Dthu TH 12T · Tỷ suất ĐT = GTCL thiết bị / (Quota khả dụng + Upcoming)",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
-        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1180px]" },
+        h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1380px]" },
           h("thead", null, h("tr", { className: T.headRow },
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Miền"), h("th", { className: T.th() }, "Bệnh viện"),
             h("th", { className: T.th(true) }, "SL CCDC"), h("th", { className: T.th(true) }, "SL TB"), h("th", { className: T.th(true) }, "Quota Onhand"), h("th", { className: T.th(true) }, "Quota Upcoming"),
             h("th", { className: T.th(true) }, "TH YTD"), h("th", { className: T.th(true) }, "Quota khả dụng"),
+            h("th", { className: T.th(true) }, "Dthu TH 12T"), h("th", { className: T.th(true) }, "%Utilization"),
             h("th", { className: T.th(true) }, "GTCL thiết bị"), h("th", { className: "px-4 py-2 text-right font-semibold" }, "Tỷ suất ĐT"))),
           h("tbody", null,
             shown.length === 0
-              ? h("tr", null, h("td", { colSpan: 10, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
+              ? h("tr", null, h("td", { colSpan: 12, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
               : shown.map((r, i) => h("tr", { key: r.ma_bv || r.ten_bv, className: T.row(i) + " align-top" },
                   h("td", { className: "whitespace-nowrap px-4 py-2 " + (r.mien ? "text-slate-700" : "italic text-slate-400") }, r.mien || "chưa xác định"),
                   h("td", { className: T.td + " min-w-[14rem] text-slate-800" },
@@ -106,6 +128,11 @@
                       r.thang_thau_sap_toi && h("div", { className: "text-[11px] text-slate-400" }, fmtKy(r.thang_thau_sap_toi + "-01"))) : "—"),
                   h("td", { className: T.num + " text-slate-600" }, r.co_quota ? fmtTien(r.dt_thuc_hien) : "—"),
                   h("td", { className: T.num + " font-semibold text-slate-800" }, r.co_quota ? fmtTien(r.quota_tien_con_lai) : "—"),
+                  h("td", { className: T.num + (r.dt_12t > sanTy * 1e9 ? " bg-emerald-50 font-semibold text-emerald-700" : " text-slate-600") },
+                    r.dt_12t > 0 ? fmtTien(r.dt_12t) : "—"),
+                  h("td", { className: T.num + " text-slate-700",
+                    title: r.khau_hao_12t > 0 ? "Khấu hao 12T " + fmtInt(r.khau_hao_12t) : undefined },
+                    r.khau_hao_12t > 0 && !(r.dt_12t > 0) ? h(Badge, { tone: "red" }, "không DT") : fmtPct(r.utilization)),
                   h("td", { className: T.num + " text-slate-700",
                     title: r.gtcl > 0 ? "Nguyên giá " + fmtInt(r.nguyen_gia) + " · " + fmtInt(r.sl_co_gia) + " thiết bị có giá" : undefined },
                     r.gtcl > 0 ? fmtTien(r.gtcl) : "—"),
