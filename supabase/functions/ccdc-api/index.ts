@@ -1041,6 +1041,9 @@ async function handleAction(
       });
       if (error) throw new Error(error.message);
 
+      // Tên nhóm SP đã được chuẩn hoá theo danh mục (fn_nhom_chuan) → trả lại để client chọn đúng nhóm
+      const { data: snapRow } = await app.from("snapshots").select("nhom_san_pham").eq("id", snapId).maybeSingle();
+
       // Mã BV thiếu hoặc chưa khai báo địa bàn (shared.dm_dia_ban) → không lọc được theo miền
       const { data: unmapped } = await app.from("snapshot_items")
         .select("ma_bv, ten_bv").eq("snapshot_id", snapId).is("mien", null);
@@ -1050,7 +1053,7 @@ async function handleAction(
         if (!bvChuaMap.has(k)) bvChuaMap.set(k, r.ten_bv || "");
       }
       return {
-        ok: true, snapshot_id: snapId,
+        ok: true, snapshot_id: snapId, nhom_san_pham: snapRow?.nhom_san_pham ?? nhom,
         bv_chua_map: [...bvChuaMap.entries()].map(([ma_bv, ten_bv]) => ({ ma_bv, ten_bv })),
       };
     }
@@ -1333,12 +1336,26 @@ async function handleAction(
         }
       }
 
+      // Tên BV theo danh mục khách hàng (kể cả BV chỉ có quota), không lấy tên trong file / quota
+      const maBvList = [...byBv.values()].map((b) => b.ma_bv).filter(Boolean) as string[];
+      const tenBv = new Map<string, string>();
+      for (let i = 0; i < maBvList.length; i += 300) {
+        const { data, error } = await admin.schema("shared").from("dm_khach_hang")
+          .select("customer_id, customer_name, customer_alias").in("customer_id", maBvList.slice(i, i + 300).map(norm));
+        if (error) throw new Error(error.message);
+        for (const k of (data ?? [])) {
+          const ten = String(k.customer_alias ?? "").trim() || String(k.customer_name ?? "").trim();
+          if (ten) tenBv.set(norm(k.customer_id), ten);
+        }
+      }
+
       const num = (v: unknown) => Number(v ?? 0);
       const mienF = mienScope(perm, payload.mien);
       const rows = [...byBv.values()]
         .filter((b) => !mienF || mienF.includes(b.mien as string))
         .map((b) => ({
-          ma_bv: b.ma_bv, ten_bv: b.ten_bv || b.quota?.khach_hang || b.ma_bv, mien: b.mien,
+          ma_bv: b.ma_bv, mien: b.mien,
+          ten_bv: (b.ma_bv && tenBv.get(norm(b.ma_bv))) || b.ten_bv || b.quota?.khach_hang || b.ma_bv,
           sl_ccdc: b.sl_ccdc, loai: b.loai, ktv: b.ktv,
           co_quota: !!b.quota,
           quota_tien_on_hand: num(b.quota?.quota_tien_on_hand),

@@ -23,7 +23,8 @@
     dvt:           ["đvt", "đơn vị tính"],
     so_luong:      ["sl", "số lượng"],
     ngay_ky_gui:   ["ngày ký gửi", "ngày kg"],
-    ktv_phu_trach: ["ktv phụ trách", "ktv", "pic"],
+    // Không map "PIC": mẫu mới dùng PIC cho người/nơi giữ (thường là tên BV), không phải KTV
+    ktv_phu_trach: ["ktv phụ trách", "ktv"],
     note:          ["note", "ghi chú"],
     ngay_dat:      ["ngày đặt", "ngày đặt máy"],
     chi_phi_khau_hao: ["chi phí (tính khấu hao)", "chi phí tính khấu hao", "chi phí khấu hao", "nguyên giá"],
@@ -113,12 +114,6 @@
     const warnings = [];
     const noMaBv = items.filter((i) => !i.ma_bv).length;
     if (noMaBv) warnings.push(noMaBv + " dòng thiếu mã BV (không map được miền)");
-    const names = {};
-    for (const i of items) if (i.ma_bv && i.ten_bv) (names[i.ma_bv] ??= new Set()).add(i.ten_bv);
-    const multi = Object.entries(names).filter(([, s]) => s.size > 1);
-    if (multi.length) warnings.push(multi.length + " mã BV có nhiều tên khác nhau: " +
-      multi.slice(0, 3).map(([k, s]) => k + " (" + [...s].slice(0, 2).join(" / ") + (s.size > 2 ? " / +" + (s.size - 2) + " tên khác" : "") + ")")
-        .join("; ") + (multi.length > 3 ? "…" : ""));
     const serials = {};
     for (const i of items) if (i.serial) serials[i.serial] = (serials[i.serial] || 0) + 1;
     const dupSerial = Object.entries(serials).filter(([, n]) => n > 1).map(([s]) => s);
@@ -149,14 +144,16 @@
     const pick = async (f) => {
       setFile(f); setError(""); setPreview(null); setResult(null);
       const g = guessNhomSP(f.name);
-      if (g) setNhomSP(g);
+      if (g) setNhomSP((existing.find((s) => s.nhom_san_pham.toLowerCase() === g.toLowerCase()) || {}).nhom_san_pham || g);
       setKyCapNhat(guessKy(f.name));
       try { setPreview(parseWorkbook(await f.arrayBuffer())); }
       catch (e) { setError(e.message || String(e)); }
     };
 
     const kyMonth = kyCapNhat.slice(0, 7);
-    const willReplace = existing.find((s) => s.nhom_san_pham === nhomSP.trim() && String(s.ky_cap_nhat).slice(0, 7) === kyMonth);
+    // Nhóm SP so không phân biệt hoa/thường: server chuẩn hoá theo danh mục ("NSK ARTHREX" → "NSK Arthrex")
+    const sameNhom = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    const willReplace = existing.find((s) => sameNhom(s.nhom_san_pham, nhomSP) && String(s.ky_cap_nhat).slice(0, 7) === kyMonth);
 
     const submit = async () => {
       setError(""); setBusy(true);
@@ -166,7 +163,7 @@
           nhom_san_pham: nhomSP.trim(), ky_cap_nhat: kyCapNhat,
           nguon_file: file.name, ghi_chu: ghiChu || null, items: preview.items,
         });
-        onUploaded(nhomSP.trim(), kyCapNhat);
+        onUploaded(res.nhom_san_pham || nhomSP.trim(), kyCapNhat);
         if (res.bv_chua_map && res.bv_chua_map.length) setResult(res);
         else onClose();
       } catch (e) { setError(e.message || String(e)); }
@@ -229,12 +226,11 @@
                 h("div", { className: "scroll-shadow max-h-60 overflow-auto rounded-md border border-slate-200" },
                   h("table", { className: T.table + " text-[12px]" },
                     h("thead", { className: "sticky top-0" }, h("tr", { className: T.headRow },
-                      ["Mã BV", "Tên BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "Ngày đặt", "Chi phí KH", "Năm KH", "KTV"].map((c, i) =>
-                        h("th", { key: c, className: T.th(i === 5 || i === 8 || i === 9) }, c)))),
+                      ["Mã BV", "Mã Bravo", "Tên CCDC", "Serial", "SL", "Ngày KG", "Ngày đặt", "Chi phí KH", "Năm KH", "KTV"].map((c, i) =>
+                        h("th", { key: c, className: T.th(i === 4 || i === 7 || i === 8) }, c)))),
                     h("tbody", null,
                       preview.items.slice(0, 30).map((it, i) => h("tr", { key: i, className: T.row(i) },
                         h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.ma_bv || "—"),
-                        h("td", { className: "max-w-[180px] truncate px-3 py-1 text-slate-700" }, it.ten_bv || "—"),
                         h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-800" }, it.ma_bravo || "—"),
                         h("td", { className: "max-w-[220px] truncate px-3 py-1 text-slate-800" }, it.ten_ccdc),
                         h("td", { className: "whitespace-nowrap px-3 py-1 font-mono text-slate-600" }, it.serial || "—"),
@@ -244,7 +240,7 @@
                         h("td", { className: "whitespace-nowrap px-3 py-1 text-right tabular-nums" }, it.chi_phi_khau_hao ? fmtInt(it.chi_phi_khau_hao) : "—"),
                         h("td", { className: "px-3 py-1 text-right tabular-nums" }, it.so_nam_khau_hao ?? "—"),
                         h("td", { className: "whitespace-nowrap px-3 py-1 text-slate-600" }, it.ktv_phu_trach || "—"))),
-                      preview.items.length > 30 && h("tr", null, h("td", { colSpan: 11, className: "px-3 py-2 text-center text-slate-400" },
+                      preview.items.length > 30 && h("tr", null, h("td", { colSpan: 10, className: "px-3 py-2 text-center text-slate-400" },
                         "… và " + (preview.items.length - 30) + " dòng nữa"))))))),
             h("div", { className: "flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3" },
               h("button", { type: "button", onClick: onClose, disabled: busy, className: btn.secondary }, "Huỷ"),
