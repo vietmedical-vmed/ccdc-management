@@ -1,18 +1,19 @@
 // Màn Phân bổ CCDC — CCDC / thiết bị ký gửi (snapshot mới nhất) cạnh quota thầu theo BV, cùng nhóm SP.
 // Quota khả dụng = Quota Onhand − TH YTD.
 // Dthu TH 12T = doanh thu thực hiện 12 tháng tới tháng hiện tại − 1; tô xanh khi > Dthu sàn (mặc định 20 tỷ, lưu theo trình duyệt).
-// %Utilization = khấu hao thiết bị 12T / Dthu TH 12T.
-// Tỷ suất đầu tư = GTCL thiết bị đang đặt tại BV / (Quota khả dụng + Quota Upcoming).
+// Hệ số đầu tư         = Dthu TH 12T / khấu hao thiết bị 12T (lần).
+// Hệ số đầu tư dự kiến = (Quota khả dụng + Quota upcoming trong thời gian khấu hao còn lại) / GTCL (lần).
+//   Thời gian khấu hao còn lại của BV = tới tháng hết khấu hao muộn nhất trong các thiết bị còn GTCL.
 //   GTCL khấu hao đường thẳng theo tháng từ ngày ký gửi tới kỳ snapshot (view v_snapshot_items).
 (function () {
   const { useState, useEffect } = React;
   const h = React.createElement;
   const { api } = window.CCDC_API;
   const { useKgFilters, KgFilters } = window.CCDC_KG;
-  const { fmtInt, fmtTien, fmtKy, useReload, StatCard, Panel, Badge, Segmented, FilterSelect,
+  const { fmtInt, fmtTien, fmtKy, useReload, StatCard, Panel, Segmented, FilterSelect,
     LoadingBlock, RefreshingBar, Empty, T } = window.CCDC_UI;
 
-  const fmtPct = (x) => x == null ? "—" : (x * 100).toFixed(x >= 0.1 ? 0 : 1) + "%";
+  const fmtLan = (x) => x == null ? "—" : x.toFixed(2) + " lần";
   const SAN_KEY = "ccdc.phanBo.dthuSanTy";
   const SAN_MAC_DINH = 20; // tỷ đồng
   const readSan = () => {
@@ -20,7 +21,8 @@
   };
   const saveSan = (v) => { try { localStorage.setItem(SAN_KEY, String(v)); } catch { /* bỏ qua */ } };
 
-  const tyTone = (x) => x == null ? "text-slate-400" : x >= 1 ? "text-red-600" : x >= 0.5 ? "text-amber-600" : "text-slate-800";
+  // Hệ số càng thấp càng kém: < 1 lần đỏ, < 2 lần vàng
+  const hsTone = (x) => x == null ? "text-slate-400" : x < 1 ? "text-red-600" : x < 2 ? "text-amber-600" : "text-slate-800";
 
   function PhanBoScreen({ user }) {
     const f = useKgFilters(user, { requireNhom: true });
@@ -64,10 +66,9 @@
       .sort((a, b) => (mienOrder(a.mien) - mienOrder(b.mien))
         || ((b.quota_tien_on_hand + b.quota_tien_sap_toi) - (a.quota_tien_on_hand + a.quota_tien_sap_toi)));
     const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
+    // Hệ số dự kiến chung: chỉ các BV đang đặt thiết bị còn GTCL
     const coGtcl = rows.filter((r) => r.gtcl > 0);
-    // Tỷ suất chung: chỉ các BV đang đặt thiết bị có giá
-    const quotaCoGtcl = coGtcl.reduce((s, r) => s + r.quota_con_ban, 0);
-    const tySuatChung = quotaCoGtcl > 0 ? sum("gtcl") / quotaCoGtcl : null;
+    const hsDuKienChung = coGtcl.length ? coGtcl.reduce((s, r) => s + r.quota_du_kien, 0) / sum("gtcl") : null;
 
     return h("div", { className: "space-y-4" },
       filters,
@@ -94,7 +95,7 @@
           sub: "Onhand " + fmtTien(sum("quota_tien_on_hand")) + " · Upcoming " + fmtTien(sum("quota_tien_sap_toi")) }),
         h(StatCard, { label: "BV đang ký gửi", value: fmtInt(coCcdc.length), sub: "SL CCDC " + fmtInt(coCcdc.reduce((s, r) => s + r.sl, 0)) + " · SL TB " + fmtInt(sum("sl_tb")) }),
         h(StatCard, { label: "GTCL thiết bị", value: fmtTien(sum("gtcl")),
-          sub: "Nguyên giá " + fmtTien(sum("nguyen_gia")) + " · Tỷ suất ĐT " + fmtPct(tySuatChung) }),
+          sub: "Nguyên giá " + fmtTien(sum("nguyen_gia")) + " · HS ĐT dự kiến " + fmtLan(hsDuKienChung) }),
         h(StatCard, { label: "Ký gửi nhưng không có quota", swatch: "bg-amber-500", value: fmtInt(khongQuota.length), sub: khongQuota.length ? "Kiểm tra mã BV ↔ mã KH" : "Mọi BV ký gửi đều có quota" })),
 
       h(Panel, {
@@ -102,7 +103,8 @@
         subtitle: "Quota Onhand = thầu cũ + đợt đã tới tháng thầu · Quota Upcoming = đợt chưa tới tháng · Quota khả dụng = Onhand − TH YTD" +
           (data.dt_12t_tu ? " · Dthu TH 12T = " + fmtKy(data.dt_12t_tu + "-01") + "–" + fmtKy(data.dt_12t_den + "-01") : " · Dthu TH 12T") +
           ", xanh khi > " + sanTy + " tỷ" +
-          " · %Utilization = khấu hao TB 12T / Dthu TH 12T · Tỷ suất ĐT = GTCL thiết bị / (Quota khả dụng + Upcoming)",
+          " · Hệ số đầu tư = Dthu TH 12T / khấu hao TB 12T" +
+          " · Hệ số đầu tư dự kiến = (Quota khả dụng + Upcoming trong thời gian khấu hao còn lại) / GTCL",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
         h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1380px]" },
@@ -110,8 +112,8 @@
             h("th", { className: "px-4 py-2 text-left font-semibold" }, "Miền"), h("th", { className: T.th() }, "Bệnh viện"),
             h("th", { className: T.th(true) }, "SL CCDC"), h("th", { className: T.th(true) }, "SL TB"), h("th", { className: T.th(true) }, "Quota Onhand"), h("th", { className: T.th(true) }, "Quota Upcoming"),
             h("th", { className: T.th(true) }, "TH YTD"), h("th", { className: T.th(true) }, "Quota khả dụng"),
-            h("th", { className: T.th(true) }, "Dthu TH 12T"), h("th", { className: T.th(true) }, "%Utilization"),
-            h("th", { className: T.th(true) }, "GTCL thiết bị"), h("th", { className: "px-4 py-2 text-right font-semibold" }, "Tỷ suất ĐT"))),
+            h("th", { className: T.th(true) }, "Dthu TH 12T"), h("th", { className: T.th(true) }, "Hệ số đầu tư"),
+            h("th", { className: T.th(true) }, "GTCL thiết bị"), h("th", { className: "px-4 py-2 text-right font-semibold" }, "Hệ số đầu tư dự kiến"))),
           h("tbody", null,
             shown.length === 0
               ? h("tr", null, h("td", { colSpan: 12, className: "px-4 py-8 text-center text-slate-400" }, "Không có bệnh viện nào"))
@@ -130,14 +132,16 @@
                   h("td", { className: T.num + " font-semibold text-slate-800" }, r.co_quota ? fmtTien(r.quota_tien_con_lai) : "—"),
                   h("td", { className: T.num + (r.dt_12t > sanTy * 1e9 ? " bg-emerald-50 font-semibold text-emerald-700" : " text-slate-600") },
                     r.dt_12t > 0 ? fmtTien(r.dt_12t) : "—"),
-                  h("td", { className: T.num + " text-slate-700",
+                  h("td", { className: T.num + " font-semibold " + hsTone(r.he_so_dau_tu),
                     title: r.khau_hao_12t > 0 ? "Khấu hao 12T " + fmtInt(r.khau_hao_12t) : undefined },
-                    r.khau_hao_12t > 0 && !(r.dt_12t > 0) ? h(Badge, { tone: "red" }, "không DT") : fmtPct(r.utilization)),
+                    fmtLan(r.he_so_dau_tu)),
                   h("td", { className: T.num + " text-slate-700",
                     title: r.gtcl > 0 ? "Nguyên giá " + fmtInt(r.nguyen_gia) + " · " + fmtInt(r.sl_co_gia) + " thiết bị có giá" : undefined },
                     r.gtcl > 0 ? fmtTien(r.gtcl) : "—"),
-                  h("td", { className: "whitespace-nowrap px-4 py-2 text-right font-semibold tabular-nums " + tyTone(r.ty_suat_dau_tu) },
-                    r.gtcl > 0 && !(r.quota_con_ban > 0) ? h(Badge, { tone: "red" }, "không quota") : fmtPct(r.ty_suat_dau_tu)))))))),
+                  h("td", { className: "whitespace-nowrap px-4 py-2 text-right font-semibold tabular-nums " + hsTone(r.he_so_dau_tu_du_kien),
+                    title: r.gtcl > 0 ? "Quota khả dụng " + fmtInt(r.quota_tien_con_lai) + " + upcoming tới " +
+                      (r.thang_het_kh ? fmtKy(r.thang_het_kh + "-01") : "—") + " " + fmtInt(r.quota_sap_toi_trong_kh) : undefined },
+                    fmtLan(r.he_so_dau_tu_du_kien)))))))),
     );
   }
 

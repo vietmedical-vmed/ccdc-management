@@ -1268,7 +1268,9 @@ async function handleAction(
 
     // ── Phân bổ CCDC: CCDC ký gửi (snapshot mới nhất) × quota thầu còn lại theo BV ──
     // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư,
-    //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12T, %Utilization = khấu hao 12T / Dthu TH 12T.
+    //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12T,
+    //   Hệ số đầu tư         = Dthu TH 12T / khấu hao 12T (lần),
+    //   Hệ số đầu tư dự kiến = (Quota khả dụng + Quota upcoming trong thời gian khấu hao còn lại) / GTCL (lần).
     case "phan_bo_ccdc": {
       const app = admin.schema("app_ccdc");
       const fy = Number(payload.fiscal_year) || fyOf(new Date());
@@ -1284,13 +1286,15 @@ async function handleAction(
       if (!nhom) return { ok: true, fy, nhom_options, rows: [] };
       const snap = (snaps ?? []).find((s: any) => s.nhom_san_pham === nhom);
 
-      const [items, quota, dt12, cfg] = await Promise.all([
+      const [items, quota, dt12, sapToi, cfg] = await Promise.all([
         fetchSnapshotItems(admin, [snap.id], null),
         fetchAll((from, to) => app.from("v_quota_kh_nhom").select("*")
           .eq("nam_tai_chinh", fyLabel).eq("nhom_san_pham", nhom)
           .order("ma_khach_hang").range(from, to)),
         fetchAll((from, to) => app.from("v_dt_12t_kh_nhom").select("ma_khach_hang, dt_12t, tu_thang, den_thang")
           .eq("nhom_san_pham", nhom).order("ma_khach_hang").range(from, to)),
+        fetchAll((from, to) => app.from("v_quota_sap_toi_thang").select("ma_khach_hang, thang_thau, quota_tien")
+          .eq("nhom_san_pham", nhom).order("ma_khach_hang").order("thang_thau").range(from, to)),
         admin.schema("shared").from("app_config").select("value").eq("key", "current_month").maybeSingle(),
       ]);
 
@@ -1314,6 +1318,24 @@ async function handleAction(
       const dtByKh = new Map<string, number>();
       for (const d of dt12) dtByKh.set(String(d.ma_khach_hang).trim().toUpperCase(), Number(d.dt_12t ?? 0));
 
+      // Tháng hết khấu hao của 1 thiết bị: từ tháng ký gửi + số tháng KH − 1.
+      // Không có ngày ký gửi → như view GTCL: chưa khấu hao, tính từ tháng kỳ snapshot.
+      const kySnap = monthIdx(String(snap.ky_cap_nhat));
+      const thangHetKh = (r: any) => {
+        const soThang = Math.round(Number(r.so_nam_khau_hao ?? 0) * 12);
+        if (!(soThang > 0)) return null;
+        const ngay = r.ngay_ky_gui || r.ngay_dat;
+        return (ngay ? monthIdx(String(ngay)) : kySnap) + soThang - 1;
+      };
+      // Quota upcoming theo tháng thầu (mọi FY); tháng thầu trống → luôn tính
+      const sapToiByKh = new Map<string, { thang: number | null; tien: number }[]>();
+      for (const q of sapToi) {
+        const k = String(q.ma_khach_hang ?? "").trim().toUpperCase();
+        if (!k) continue;
+        if (!sapToiByKh.has(k)) sapToiByKh.set(k, []);
+        sapToiByKh.get(k)!.push({ thang: q.thang_thau ? monthIdx(String(q.thang_thau)) : null, tien: Number(q.quota_tien ?? 0) });
+      }
+
       // Bỏ số thứ tự bộ ở cuối tên ("CCDC NSK GỐI - NAM - 05" → "CCDC NSK GỐI") để gom theo loại
       const loaiOf = (ten: string) => String(ten ?? "").trim()
         .replace(/\s+-\s+(?:(?:nam|bắc|bac|trung|mb|mn|mt)\s+-\s+)?\d+$/iu, "").trim();
@@ -1322,13 +1344,13 @@ async function handleAction(
       type Row = {
         ma_bv: string | null; ten_bv: string | null; mien: string | null;
         sl_ccdc: number; sl_tb: number; loai: Record<string, number>; ktv: string[];
-        nguyen_gia: number; gtcl: number; sl_co_gia: number; khau_hao_12t: number;
+        nguyen_gia: number; gtcl: number; sl_co_gia: number; khau_hao_12t: number; het_kh: number | null;
         quota: any | null;
       };
       const byBv = new Map<string, Row>();
       for (const r of items) {
         const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, het_kh: null, quota: null });
         const b = byBv.get(k)!;
         const sl = Number(r.so_luong ?? 0);
         // Thiết bị đếm riêng; phân bổ theo quota (loại, ngưỡng) chỉ tính CCDC
@@ -1345,11 +1367,16 @@ async function handleAction(
           b.sl_co_gia += sl;
         }
         b.khau_hao_12t += khauHao12t(r);
+        // Thời gian khấu hao còn lại của BV = tới tháng hết KH muộn nhất trong các thiết bị còn GTCL
+        if (Number(r.gtcl ?? 0) > 0) {
+          const het = thangHetKh(r);
+          if (het != null && (b.het_kh == null || het > b.het_kh)) b.het_kh = het;
+        }
       }
       for (const q of quota) {
         if (!q.ma_khach_hang) continue;
         const k = norm(q.ma_khach_hang);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, het_kh: null, quota: null });
         byBv.get(k)!.quota = q;
       }
 
@@ -1396,14 +1423,21 @@ async function handleAction(
           nguyen_gia: b.nguyen_gia, gtcl: b.gtcl, sl_co_gia: b.sl_co_gia,
           khau_hao_12t: Math.round(b.khau_hao_12t),
           dt_12t: b.ma_bv ? (dtByKh.get(norm(b.ma_bv)) ?? 0) : 0,
+          thang_het_kh: b.het_kh != null ? idxLabel(b.het_kh) : null,
+          quota_sap_toi_trong_kh: b.ma_bv && b.het_kh != null
+            ? (sapToiByKh.get(norm(b.ma_bv)) ?? [])
+                .filter((x) => x.thang == null || x.thang <= b.het_kh!)
+                .reduce((s, x) => s + x.tien, 0)
+            : 0,
         }))
-        // Tỷ suất đầu tư = GTCL thiết bị đang đặt / quota còn bán được (khả dụng + upcoming)
         .map((r) => {
-          const quotaConBan = r.quota_tien_con_lai + r.quota_tien_sap_toi;
+          const quotaDuKien = r.quota_tien_con_lai + r.quota_sap_toi_trong_kh;
           return {
-            ...r, quota_con_ban: quotaConBan,
-            ty_suat_dau_tu: r.gtcl > 0 && quotaConBan > 0 ? r.gtcl / quotaConBan : null,
-            utilization: r.khau_hao_12t > 0 && r.dt_12t > 0 ? r.khau_hao_12t / r.dt_12t : null,
+            ...r, quota_du_kien: quotaDuKien,
+            // Dthu TH 12T / khấu hao 12T
+            he_so_dau_tu: r.khau_hao_12t > 0 ? r.dt_12t / r.khau_hao_12t : null,
+            // (Quota khả dụng + upcoming trong thời gian KH còn lại) / GTCL
+            he_so_dau_tu_du_kien: r.gtcl > 0 ? quotaDuKien / r.gtcl : null,
           };
         });
 
