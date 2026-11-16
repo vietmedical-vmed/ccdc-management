@@ -2,18 +2,28 @@
 // Quota khả dụng = Quota Onhand − TH YTD.
 // Dthu TH 12T = doanh thu thực hiện 12 tháng tới tháng hiện tại − 1; tô xanh khi > Dthu sàn (mặc định 20 tỷ, lưu theo trình duyệt).
 // Hệ số đầu tư         = Dthu TH 12T / khấu hao thiết bị 12T (lần).
-// Hệ số đầu tư dự kiến = (Quota khả dụng + Quota upcoming trong thời gian khấu hao còn lại) / GTCL (lần).
-//   Thời gian khấu hao còn lại của BV = tới tháng hết khấu hao muộn nhất trong các thiết bị còn GTCL.
+// Hệ số đầu tư dự kiến = quota / khấu hao thiết bị trên CÙNG kỳ dự kiến (lần), tính ở ccdc-api:
+//   kỳ = tháng hiện tại → min(hết hiệu lực quota muộn nhất, hết khấu hao muộn nhất);
+//   quota mỗi đợt thầu chia đều theo thời gian hiệu lực, chỉ lấy phần rơi vào kỳ.
 //   GTCL khấu hao đường thẳng theo tháng từ ngày ký gửi tới kỳ snapshot (view v_snapshot_items).
 (function () {
   const { useState, useEffect } = React;
   const h = React.createElement;
   const { api } = window.CCDC_API;
   const { useKgFilters, KgFilters } = window.CCDC_KG;
-  const { fmtInt, fmtTien, fmtKy, useReload, StatCard, Panel, Segmented, FilterSelect,
+  const { fmtInt, fmtKy, useReload, StatCard, Panel, Segmented, FilterSelect,
     LoadingBlock, RefreshingBar, Empty, T } = window.CCDC_UI;
 
-  const fmtLan = (x) => x == null ? "—" : x.toFixed(2) + " lần";
+  // Tiền và hệ số: 1 chữ số thập phân
+  const fmtTien = (n) => {
+    if (n == null) return "—";
+    const v = Number(n);
+    if (v === 0) return "0";
+    if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + " tỷ";
+    if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + " tr";
+    return Math.round(v).toLocaleString("vi-VN");
+  };
+  const fmtLan = (x) => x == null ? "—" : x.toFixed(1) + " lần";
   const SAN_KEY = "ccdc.phanBo.dthuSanTy";
   const SAN_MAC_DINH = 20; // tỷ đồng
   const readSan = () => {
@@ -66,9 +76,10 @@
       .sort((a, b) => (mienOrder(a.mien) - mienOrder(b.mien))
         || ((b.quota_tien_on_hand + b.quota_tien_sap_toi) - (a.quota_tien_on_hand + a.quota_tien_sap_toi)));
     const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
-    // Hệ số dự kiến chung: chỉ các BV đang đặt thiết bị còn GTCL
-    const coGtcl = rows.filter((r) => r.gtcl > 0);
-    const hsDuKienChung = coGtcl.length ? coGtcl.reduce((s, r) => s + r.quota_du_kien, 0) / sum("gtcl") : null;
+    // Hệ số dự kiến chung: Σ quota kỳ / Σ khấu hao kỳ của các BV có kỳ dự kiến
+    const coDuKien = rows.filter((r) => r.du_kien && r.du_kien.khau_hao > 0);
+    const khDuKien = coDuKien.reduce((s, r) => s + r.du_kien.khau_hao, 0);
+    const hsDuKienChung = khDuKien > 0 ? coDuKien.reduce((s, r) => s + r.du_kien.quota, 0) / khDuKien : null;
 
     return h("div", { className: "space-y-4" },
       filters,
@@ -104,7 +115,7 @@
           (data.dt_12t_tu ? " · Dthu TH 12T = " + fmtKy(data.dt_12t_tu + "-01") + "–" + fmtKy(data.dt_12t_den + "-01") : " · Dthu TH 12T") +
           ", xanh khi > " + sanTy + " tỷ" +
           " · Hệ số đầu tư = Dthu TH 12T / khấu hao TB 12T" +
-          " · Hệ số đầu tư dự kiến = (Quota khả dụng + Upcoming trong thời gian khấu hao còn lại) / GTCL",
+          " · Hệ số đầu tư dự kiến = quota / khấu hao TB trên cùng kỳ (từ tháng này tới khi hết hiệu lực quota hoặc hết khấu hao, mốc nào sớm hơn)",
         right: h(Segmented, { options: tabs.map((t) => ({ key: t.key, label: t.label, count: t.list.length })), value: tab, onChange: setTab }),
       },
         h("div", { className: "scroll-shadow overflow-x-auto" }, h("table", { className: T.table + " min-w-[1380px]" },
@@ -139,8 +150,8 @@
                     title: r.gtcl > 0 ? "Nguyên giá " + fmtInt(r.nguyen_gia) + " · " + fmtInt(r.sl_co_gia) + " thiết bị có giá" : undefined },
                     r.gtcl > 0 ? fmtTien(r.gtcl) : "—"),
                   h("td", { className: "whitespace-nowrap px-4 py-2 text-right font-semibold tabular-nums " + hsTone(r.he_so_dau_tu_du_kien),
-                    title: r.gtcl > 0 ? "Quota khả dụng " + fmtInt(r.quota_tien_con_lai) + " + upcoming tới " +
-                      (r.thang_het_kh ? fmtKy(r.thang_het_kh + "-01") : "—") + " " + fmtInt(r.quota_sap_toi_trong_kh) : undefined },
+                    title: r.du_kien ? "Kỳ " + fmtKy(r.du_kien.tu + "-01") + "–" + fmtKy(r.du_kien.den + "-01") +
+                      "\nQuota trong kỳ " + fmtInt(r.du_kien.quota) + "\nKhấu hao trong kỳ " + fmtInt(r.du_kien.khau_hao) : undefined },
                     fmtLan(r.he_so_dau_tu_du_kien)))))))),
     );
   }

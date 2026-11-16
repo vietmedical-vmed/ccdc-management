@@ -1270,7 +1270,9 @@ async function handleAction(
     // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư,
     //   Dthu TH 12T (12 tháng tới tháng hiện tại − 1), khấu hao 12T,
     //   Hệ số đầu tư         = Dthu TH 12T / khấu hao 12T (lần),
-    //   Hệ số đầu tư dự kiến = (Quota khả dụng + Quota upcoming trong thời gian khấu hao còn lại) / GTCL (lần).
+    //   Hệ số đầu tư dự kiến = quota / khấu hao thiết bị trên CÙNG kỳ dự kiến (lần):
+    //     kỳ = tháng hiện tại → min(tháng hết hiệu lực quota muộn nhất, tháng hết khấu hao muộn nhất);
+    //     quota mỗi đợt phân bổ đều theo thời gian hiệu lực, chỉ lấy phần rơi vào kỳ.
     case "phan_bo_ccdc": {
       const app = admin.schema("app_ccdc");
       const fy = Number(payload.fiscal_year) || fyOf(new Date());
@@ -1286,14 +1288,15 @@ async function handleAction(
       if (!nhom) return { ok: true, fy, nhom_options, rows: [] };
       const snap = (snaps ?? []).find((s: any) => s.nhom_san_pham === nhom);
 
-      const [items, quota, dt12, sapToi, cfg] = await Promise.all([
+      const [items, quota, dt12, dots, cfg] = await Promise.all([
         fetchSnapshotItems(admin, [snap.id], null),
         fetchAll((from, to) => app.from("v_quota_kh_nhom").select("*")
           .eq("nam_tai_chinh", fyLabel).eq("nhom_san_pham", nhom)
           .order("ma_khach_hang").range(from, to)),
         fetchAll((from, to) => app.from("v_dt_12t_kh_nhom").select("ma_khach_hang, dt_12t, tu_thang, den_thang")
           .eq("nhom_san_pham", nhom).order("ma_khach_hang").range(from, to)),
-        fetchAll((from, to) => app.from("v_quota_sap_toi_thang").select("ma_khach_hang, thang_thau, quota_tien")
+        fetchAll((from, to) => app.from("v_quota_dot_hieu_luc")
+          .select("nam_tai_chinh, ma_khach_hang, loai, thang_thau, thoi_gian, thang_het, quota_tien")
           .eq("nhom_san_pham", nhom).order("ma_khach_hang").order("thang_thau").range(from, to)),
         admin.schema("shared").from("app_config").select("value").eq("key", "current_month").maybeSingle(),
       ]);
@@ -1321,20 +1324,58 @@ async function handleAction(
       // Tháng hết khấu hao của 1 thiết bị: từ tháng ký gửi + số tháng KH − 1.
       // Không có ngày ký gửi → như view GTCL: chưa khấu hao, tính từ tháng kỳ snapshot.
       const kySnap = monthIdx(String(snap.ky_cap_nhat));
-      const thangHetKh = (r: any) => {
+      const lichKh = (r: any) => {
+        const cost = Number(r.chi_phi_khau_hao ?? 0) * Number(r.so_luong ?? 0);
         const soThang = Math.round(Number(r.so_nam_khau_hao ?? 0) * 12);
-        if (!(soThang > 0)) return null;
+        if (!(cost > 0) || !(soThang > 0)) return null;
         const ngay = r.ngay_ky_gui || r.ngay_dat;
-        return (ngay ? monthIdx(String(ngay)) : kySnap) + soThang - 1;
+        const bd = ngay ? monthIdx(String(ngay)) : kySnap;
+        return { bd, het: bd + soThang - 1, thang: cost / soThang };
       };
-      // Quota upcoming theo tháng thầu (mọi FY); tháng thầu trống → luôn tính
-      const sapToiByKh = new Map<string, { thang: number | null; tien: number }[]>();
-      for (const q of sapToi) {
+      const trung = (a1: number, a2: number, b1: number, b2: number) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1) + 1);
+
+      // Đợt thầu còn hiệu lực / chưa tới (mọi FY) + thầu cũ của FY đang xem
+      const curIdx = monthIdx(curMonth);
+      const fyEnd = (fy + 1) * 12 + 2; // T3 năm sau
+      type Dot = { cu: boolean; bd: number | null; het: number | null; tg: number; tien: number };
+      const dotByKh = new Map<string, Dot[]>();
+      for (const q of dots) {
         const k = String(q.ma_khach_hang ?? "").trim().toUpperCase();
-        if (!k) continue;
-        if (!sapToiByKh.has(k)) sapToiByKh.set(k, []);
-        sapToiByKh.get(k)!.push({ thang: q.thang_thau ? monthIdx(String(q.thang_thau)) : null, tien: Number(q.quota_tien ?? 0) });
+        if (!k || (q.loai === "cu" && q.nam_tai_chinh !== fyLabel)) continue;
+        if (!dotByKh.has(k)) dotByKh.set(k, []);
+        dotByKh.get(k)!.push({
+          cu: q.loai === "cu",
+          bd: q.thang_thau ? monthIdx(String(q.thang_thau)) : null,
+          het: q.thang_het ? monthIdx(String(q.thang_het)) : null,
+          tg: Number(q.thoi_gian ?? 0), tien: Number(q.quota_tien ?? 0),
+        });
       }
+
+      // Kỳ dự kiến của 1 BV và quota / khấu hao trong kỳ đó
+      const duKien = (maBv: string | null, kd: number, tb: { bd: number; het: number; thang: number }[]) => {
+        if (!tb.length) return null;
+        const hetKh = Math.max(...tb.map((t) => t.het));
+        if (hetKh < curIdx) return null;
+        const ds = maBv ? (dotByKh.get(String(maBv).trim().toUpperCase()) ?? []) : [];
+        // Quota khả dụng còn hiệu lực tới đợt đang chạy muộn nhất; có thầu cũ / không rõ → hết FY
+        const dangChay = ds.filter((d) => !d.cu && d.bd != null && d.het != null && d.bd <= curIdx && d.het >= curIdx);
+        let hetKd = dangChay.length ? Math.max(...dangChay.map((d) => d.het!)) : fyEnd;
+        if (ds.some((d) => d.cu)) hetKd = Math.max(hetKd, fyEnd);
+        let hetQuota = curIdx - 1, quotaKy = 0;
+        if (kd > 0) {
+          quotaKy += kd * trung(curIdx, hetKd, curIdx, hetKh) / (hetKd - curIdx + 1);
+          hetQuota = hetKd;
+        }
+        for (const d of ds) {
+          if (d.cu || d.bd == null || d.het == null || d.bd <= curIdx || !(d.tg > 0)) continue;
+          const ov = trung(d.bd, d.het, curIdx, hetKh);
+          if (ov > 0) { quotaKy += d.tien * ov / d.tg; hetQuota = Math.max(hetQuota, d.het); }
+        }
+        // Không có quota → vẫn so trên kỳ tới hết FY để hệ số = 0
+        const kyDen = Math.min(hetKh, hetQuota >= curIdx ? hetQuota : fyEnd);
+        const khKy = tb.reduce((s, t) => s + t.thang * trung(t.bd, t.het, curIdx, kyDen), 0);
+        return { tu: idxLabel(curIdx), den: idxLabel(kyDen), quota: Math.round(quotaKy), khau_hao: Math.round(khKy) };
+      };
 
       // Bỏ số thứ tự bộ ở cuối tên ("CCDC NSK GỐI - NAM - 05" → "CCDC NSK GỐI") để gom theo loại
       const loaiOf = (ten: string) => String(ten ?? "").trim()
@@ -1344,13 +1385,14 @@ async function handleAction(
       type Row = {
         ma_bv: string | null; ten_bv: string | null; mien: string | null;
         sl_ccdc: number; sl_tb: number; loai: Record<string, number>; ktv: string[];
-        nguyen_gia: number; gtcl: number; sl_co_gia: number; khau_hao_12t: number; het_kh: number | null;
+        nguyen_gia: number; gtcl: number; sl_co_gia: number; khau_hao_12t: number;
+        tb: { bd: number; het: number; thang: number }[];
         quota: any | null;
       };
       const byBv = new Map<string, Row>();
       for (const r of items) {
         const k = r.ma_bv ? norm(r.ma_bv) : "TEN|" + norm(r.ten_bv);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, het_kh: null, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: r.ma_bv, ten_bv: r.ten_bv, mien: r.mien, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, tb: [], quota: null });
         const b = byBv.get(k)!;
         const sl = Number(r.so_luong ?? 0);
         // Thiết bị đếm riêng; phân bổ theo quota (loại, ngưỡng) chỉ tính CCDC
@@ -1367,16 +1409,16 @@ async function handleAction(
           b.sl_co_gia += sl;
         }
         b.khau_hao_12t += khauHao12t(r);
-        // Thời gian khấu hao còn lại của BV = tới tháng hết KH muộn nhất trong các thiết bị còn GTCL
+        // Lịch khấu hao các thiết bị còn GTCL → kỳ dự kiến
         if (Number(r.gtcl ?? 0) > 0) {
-          const het = thangHetKh(r);
-          if (het != null && (b.het_kh == null || het > b.het_kh)) b.het_kh = het;
+          const l = lichKh(r);
+          if (l) b.tb.push(l);
         }
       }
       for (const q of quota) {
         if (!q.ma_khach_hang) continue;
         const k = norm(q.ma_khach_hang);
-        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, het_kh: null, quota: null });
+        if (!byBv.has(k)) byBv.set(k, { ma_bv: q.ma_khach_hang, ten_bv: q.khach_hang, mien: null, sl_ccdc: 0, sl_tb: 0, loai: {}, ktv: [], nguyen_gia: 0, gtcl: 0, sl_co_gia: 0, khau_hao_12t: 0, tb: [], quota: null });
         byBv.get(k)!.quota = q;
       }
 
@@ -1423,23 +1465,15 @@ async function handleAction(
           nguyen_gia: b.nguyen_gia, gtcl: b.gtcl, sl_co_gia: b.sl_co_gia,
           khau_hao_12t: Math.round(b.khau_hao_12t),
           dt_12t: b.ma_bv ? (dtByKh.get(norm(b.ma_bv)) ?? 0) : 0,
-          thang_het_kh: b.het_kh != null ? idxLabel(b.het_kh) : null,
-          quota_sap_toi_trong_kh: b.ma_bv && b.het_kh != null
-            ? (sapToiByKh.get(norm(b.ma_bv)) ?? [])
-                .filter((x) => x.thang == null || x.thang <= b.het_kh!)
-                .reduce((s, x) => s + x.tien, 0)
-            : 0,
+          du_kien: duKien(b.ma_bv, b.quota ? num(b.quota.quota_tien_con_lai) : 0, b.tb),
         }))
-        .map((r) => {
-          const quotaDuKien = r.quota_tien_con_lai + r.quota_sap_toi_trong_kh;
-          return {
-            ...r, quota_du_kien: quotaDuKien,
-            // Dthu TH 12T / khấu hao 12T
-            he_so_dau_tu: r.khau_hao_12t > 0 ? r.dt_12t / r.khau_hao_12t : null,
-            // (Quota khả dụng + upcoming trong thời gian KH còn lại) / GTCL
-            he_so_dau_tu_du_kien: r.gtcl > 0 ? quotaDuKien / r.gtcl : null,
-          };
-        });
+        .map((r) => ({
+          ...r,
+          // Dthu TH 12T / khấu hao 12T
+          he_so_dau_tu: r.khau_hao_12t > 0 ? r.dt_12t / r.khau_hao_12t : null,
+          // Quota / khấu hao trong cùng kỳ dự kiến
+          he_so_dau_tu_du_kien: r.du_kien && r.du_kien.khau_hao > 0 ? r.du_kien.quota / r.du_kien.khau_hao : null,
+        }));
 
       return {
         ok: true, fy, nam_tai_chinh: fyLabel, nhom_san_pham: nhom, nhom_options,
