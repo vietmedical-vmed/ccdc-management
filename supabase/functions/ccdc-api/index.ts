@@ -1267,7 +1267,7 @@ async function handleAction(
     }
 
     // ── Phân bổ CCDC: CCDC ký gửi (snapshot mới nhất) × quota thầu còn lại theo BV ──
-    // params: { nhom_san_pham?, fiscal_year? }. Phân loại Giữ / Rút / Thiếu làm ở client theo ngưỡng.
+    // params: { nhom_san_pham?, fiscal_year?, mien? } → mỗi BV: SL CCDC / TB, quota, GTCL, tỷ suất đầu tư.
     case "phan_bo_ccdc": {
       const app = admin.schema("app_ccdc");
       const fy = Number(payload.fiscal_year) || fyOf(new Date());
