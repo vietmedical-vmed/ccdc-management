@@ -142,11 +142,33 @@
       } catch (e) { alert("Lỗi xoá: " + e.message); }
     };
 
+    // Nhóm SP → dòng mẹ (Miền · Vị trí) → điểm cụ thể (bệnh viện / kho / Sale-KTV theo PIC) → các tài sản.
     const grouped = useMemo(() => {
       const map = {};
       for (const r of rows || []) (map[r.nhom_san_pham || "Khác"] ??= []).push(r);
-      return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "vi"));
+      const mienRank = (m) => { const i = ALL_MIEN.indexOf(m); return i < 0 ? 99 : i; };
+      return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], "vi")).map(([nsp, items]) => {
+        const sub = {};
+        for (const r of items) {
+          const mi = r.mien || "", vt = r.vi_tri || r.loai_vi_tri || "";
+          const sl = Number(r.so_luong || 0), gt = sl * Number(r.nguyen_gia || 0);
+          const g = (sub[mi + "|" + vt] ??= { key: mi + "|" + vt, mien: mi, viTri: vt, picMap: {}, n: 0, sl: 0, gt: 0 });
+          const pk = (r.pic_id || "") + "|" + (r.pic || "");
+          const p = (g.picMap[pk] ??= { key: pk, picId: r.pic_id || "", pic: r.pic || "", items: [], sl: 0, gt: 0 });
+          p.items.push(r); p.sl += sl; p.gt += gt;
+          g.n += 1; g.sl += sl; g.gt += gt;
+        }
+        const groups = Object.values(sub).sort((a, b) =>
+          mienRank(a.mien) - mienRank(b.mien) || a.mien.localeCompare(b.mien, "vi") || a.viTri.localeCompare(b.viTri, "vi"));
+        for (const g of groups) {
+          g.pics = Object.values(g.picMap).sort((a, b) => (a.pic || a.picId).localeCompare(b.pic || b.picId, "vi"));
+          delete g.picMap;
+        }
+        return [nsp, items, groups];
+      });
     }, [rows]);
+    const [openGroups, setOpenGroups] = useState({});
+    const toggleGroup = (k) => setOpenGroups((o) => ({ ...o, [k]: !o[k] }));
 
     const tyLe = kpi.gia_tri > 0 ? Math.round(kpi.gia_tri_dang_dung / kpi.gia_tri * 1000) / 10 : 0;
     const hasFilter = pl || mien || lvt || nhomSp;
@@ -162,8 +184,58 @@
 
     if (rows === null) return h(React.Fragment, null, filters, h(LoadingBlock, { error }));
 
-    const cols = ["Mã NCC", "Mã Bravo", "Tên", "Loại", "Serial", "Vị trí", "PIC ID", "PIC", "Tình trạng", "SL", "Nguyên giá"];
+    const cols = ["Mã NCC", "Mã Bravo", "Tên", "Loại", "Serial", "Tình trạng", "SL", "Nguyên giá"];
     if (isAdmin) cols.push("");
+    const LABEL_SPAN = 6; // số cột trước SL
+    const caret = (open) => h("span", { className: "inline-block w-3 text-slate-400", style: { transform: open ? "rotate(90deg)" : "none", transition: "transform 120ms" } }, "▸");
+    const countPill = (text) => h("span", { className: "rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200" }, text);
+    const assetRow = (r, i) => h("tr", { key: r.id, className: T.row(i) },
+      h("td", { className: "whitespace-nowrap py-1.5 pl-14 pr-3 font-mono text-[12px] text-slate-500" }, r.ma_ncc || "—"),
+      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-800" }, r.ma_bravo),
+      h("td", { className: "px-3 py-1.5 text-slate-800" }, r.ten_vat_tu || "—"),
+      h("td", { className: "whitespace-nowrap px-3 py-1.5" }, h(Badge, { tone: r.phan_loai === "THIẾT BỊ" ? "blue" : "grey" }, r.phan_loai || "—")),
+      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-600" }, r.serial || "—"),
+      h("td", { className: "whitespace-nowrap px-3 py-1.5" }, h(Badge, { tone: TT_TONE[r.tinh_trang] || "grey" }, TT_LABEL[r.tinh_trang] || r.tinh_trang)),
+      h("td", { className: "px-3 py-1.5 text-right font-semibold tabular-nums" }, fmtInt(r.so_luong)),
+      h("td", { className: "whitespace-nowrap px-3 py-1.5 text-right tabular-nums" }, fmtMoney(Number(r.so_luong || 0) * Number(r.nguyen_gia || 0))),
+      isAdmin && h("td", { className: "whitespace-nowrap px-3 py-1.5" },
+        h("button", { type: "button", onClick: () => setEditRow(r), className: "mr-2 text-[12px] text-blue-600 hover:underline" }, "Sửa"),
+        h("button", { type: "button", onClick: () => del(r), className: "text-[12px] text-red-600 hover:underline" }, "Xoá")));
+    const totalsCells = (x, strong) => [
+      h("td", { key: "sl", className: "px-3 py-2 text-right tabular-nums text-slate-800 " + (strong ? "font-semibold" : "font-medium") }, fmtInt(x.sl)),
+      h("td", { key: "gt", className: "whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-800 " + (strong ? "font-semibold" : "font-medium") }, fmtMoney(x.gt)),
+      isAdmin && h("td", { key: "a" })];
+    const groupRow = (nsp, g) => {
+      const k = nsp + "||" + g.key, open = !!openGroups[k];
+      return h("tr", { key: "g", onClick: () => toggleGroup(k), className: "cursor-pointer border-t border-slate-200 bg-blue-50/50 hover:bg-blue-50" },
+        h("td", { colSpan: LABEL_SPAN, className: "px-3 py-2" },
+          h("div", { className: "flex items-center gap-2" },
+            caret(open),
+            h("span", { className: "font-semibold text-slate-800" }, g.mien || "(Chưa có miền)"),
+            h("span", { className: "text-slate-300" }, "·"),
+            h("span", { className: "font-medium text-slate-700" }, g.viTri || "(Chưa có vị trí)"),
+            countPill(g.pics.length + " điểm · " + g.n + " tài sản"))),
+        ...totalsCells(g, true));
+    };
+    const picRow = (nsp, g, p) => {
+      const k = nsp + "||" + g.key + "||" + p.key, open = !!openGroups[k];
+      return h("tr", { key: "p:" + p.key, onClick: () => toggleGroup(k), className: "cursor-pointer border-t border-slate-100 bg-slate-50 hover:bg-blue-50/40" },
+        h("td", { colSpan: LABEL_SPAN, className: "py-1.5 pl-8 pr-3" },
+          h("div", { className: "flex items-center gap-2" },
+            caret(open),
+            h("span", { className: "font-medium text-slate-800" }, p.pic || "(Chưa có PIC)"),
+            p.picId && h("span", { className: "font-mono text-[12px] text-slate-500" }, p.picId),
+            countPill(p.items.length + " tài sản"))),
+        ...totalsCells(p, false));
+    };
+    const groupBody = (nsp, g) => {
+      const out = [groupRow(nsp, g)];
+      if (openGroups[nsp + "||" + g.key]) for (const p of g.pics) {
+        out.push(picRow(nsp, g, p));
+        if (openGroups[nsp + "||" + g.key + "||" + p.key]) out.push(...p.items.map(assetRow));
+      }
+      return h("tbody", { key: g.key }, out);
+    };
     const lv = (k) => lvtStats[k] || {};
 
     return h("div", { className: "space-y-4" },
@@ -187,18 +259,18 @@
 
       grouped.length === 0
         ? h(Empty, null, "Không có tài sản nào khớp bộ lọc")
-        : grouped.map(([nsp, items]) => {
+        : grouped.map(([nsp, items, groups]) => {
             const isCol = collapsed[nsp];
-            const sl = items.reduce((s, r) => s + Number(r.so_luong || 0), 0);
-            const gt = items.reduce((s, r) => s + Number(r.so_luong || 0) * Number(r.nguyen_gia || 0), 0);
+            const sl = groups.reduce((s, g) => s + g.sl, 0);
+            const gt = groups.reduce((s, g) => s + g.gt, 0);
             const pg = cardPages[nsp] || 1;
-            const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-            const pgItems = items.slice((pg - 1) * PAGE_SIZE, pg * PAGE_SIZE);
+            const pages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+            const pgGroups = groups.slice((pg - 1) * PAGE_SIZE, pg * PAGE_SIZE);
             return h(Panel, {
               key: nsp,
               title: h("button", { type: "button", onClick: () => setCollapsed((c) => ({ ...c, [nsp]: !c[nsp] })), className: "flex items-center gap-2 text-left" },
                 h("span", { className: "inline-block w-3 text-slate-400", style: { transform: isCol ? "none" : "rotate(90deg)", transition: "transform 120ms" } }, "▸"),
-                nsp, h("span", { className: "rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-normal text-slate-500" }, items.length + " mã")),
+                nsp, h("span", { className: "rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-normal text-slate-500" }, items.length + " mã · " + groups.length + " vị trí")),
               right: h("span", { className: "text-[12px] text-slate-500" }, "SL ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtInt(sl)),
                 " · Giá trị ", h("b", { className: "font-semibold tabular-nums text-slate-800" }, fmtMoney(gt) + " ₫")),
             },
@@ -206,22 +278,8 @@
                 h("div", { className: "scroll-shadow overflow-x-auto" },
                   h("table", { className: T.table + " min-w-[1100px]" },
                     h("thead", null, h("tr", { className: T.headRow }, cols.map((c, i) => h("th", { key: i, className: T.th(c === "SL" || c === "Nguyên giá") }, c)))),
-                    h("tbody", null, pgItems.map((r, i) => h("tr", { key: r.id, className: T.row(i) },
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-500" }, r.ma_ncc || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-800" }, r.ma_bravo),
-                      h("td", { className: "px-3 py-1.5 text-slate-800" }, r.ten_vat_tu || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5" }, h(Badge, { tone: r.phan_loai === "THIẾT BỊ" ? "blue" : "grey" }, r.phan_loai || "—")),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-600" }, r.serial || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 text-slate-700" }, r.vi_tri || r.loai_vi_tri || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 font-mono text-[12px] text-slate-500" }, r.pic_id || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 text-slate-700" }, r.pic || "—"),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5" }, h(Badge, { tone: TT_TONE[r.tinh_trang] || "grey" }, TT_LABEL[r.tinh_trang] || r.tinh_trang)),
-                      h("td", { className: "px-3 py-1.5 text-right font-semibold tabular-nums" }, fmtInt(r.so_luong)),
-                      h("td", { className: "whitespace-nowrap px-3 py-1.5 text-right tabular-nums" }, fmtMoney(Number(r.so_luong || 0) * Number(r.nguyen_gia || 0))),
-                      isAdmin && h("td", { className: "whitespace-nowrap px-3 py-1.5" },
-                        h("button", { type: "button", onClick: () => setEditRow(r), className: "mr-2 text-[12px] text-blue-600 hover:underline" }, "Sửa"),
-                        h("button", { type: "button", onClick: () => del(r), className: "text-[12px] text-red-600 hover:underline" }, "Xoá"))))))),
-                pages > 1 && h(Pager, { page: pg, pages, total: items.length, pageSize: PAGE_SIZE, onPage: (p) => setCardPages((cp) => ({ ...cp, [nsp]: p })) })));
+                    pgGroups.map((g) => groupBody(nsp, g)))),
+                pages > 1 && h(Pager, { page: pg, pages, total: groups.length, pageSize: PAGE_SIZE, onPage: (p) => setCardPages((cp) => ({ ...cp, [nsp]: p })) })));
           }),
 
       editRow && h(EditModal, { row: editRow, onClose: () => setEditRow(null), onSaved: refresh }),
