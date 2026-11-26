@@ -1,4 +1,4 @@
-// Màn Tổng quan ký gửi: tiến độ cập nhật kỳ, KPI, SL theo tháng trong FY, tình trạng từng nhóm SP,
+// Màn Báo cáo tổng hợp ký gửi: tiến độ cập nhật kỳ, KPI, SL theo tháng trong FY, tình trạng từng nhóm SP,
 // phân bổ miền → BV, theo KTV. Bộ lọc FY / Nhóm SP / Miền nằm trên header (CCDC_KG).
 (function () {
   const { useState, useEffect } = React;

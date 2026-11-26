@@ -14,9 +14,9 @@
       label: "Ký gửi",
       keys: window.CCDC_KG.KEYS,
       tabs: [
-        { path: "/dashboard", label: "Tổng quan" },
-        { path: "/ky-gui", label: "Chi tiết theo kỳ" },
         { path: "/phan-bo", label: "Phân bổ theo quota" },
+        { path: "/ky-gui", label: "Chi tiết theo kỳ" },
+        { path: "/dashboard", label: "Báo cáo tổng hợp" },
       ],
     },
     taisan: {
@@ -149,13 +149,13 @@
 
     const onLogout = () => { clearToken(); setUser(null); window.location.hash = ""; };
 
-    // Mở mới/điều hướng vào trang → luôn về Tổng quan; bấm Reload/F5 → giữ màn đang xem
+    // Mở mới/điều hướng vào trang → luôn về tab đầu (Phân bổ theo quota); bấm Reload/F5 → giữ màn đang xem
     useEffect(() => {
       try {
         const nav = performance.getEntriesByType("navigation")[0];
         const navType = nav ? nav.type : "navigate";
-        if (navType !== "reload" && R.currentPath() !== "/dashboard") {
-          window.location.hash = "/dashboard";
+        if (navType !== "reload" && R.currentPath() !== "/phan-bo") {
+          window.location.hash = "/phan-bo";
         }
       } catch (_) { /* bỏ qua nếu API không hỗ trợ */ }
     }, []);

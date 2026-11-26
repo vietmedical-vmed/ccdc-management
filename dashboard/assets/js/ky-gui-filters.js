@@ -1,4 +1,4 @@
-// Bộ lọc dùng chung của module Ký gửi (Tổng quan / Chi tiết theo kỳ / Phân bổ): FY, Nhóm SP, Miền.
+// Bộ lọc dùng chung của module Ký gửi (Phân bổ / Chi tiết theo kỳ / Báo cáo tổng hợp): FY, Nhóm SP, Miền.
 // Lưu trên URL (#/path?fy=2026&nhom=…&mien=…) nên chuyển tab vẫn giữ.
 (function () {
   const { useState, useEffect } = React;

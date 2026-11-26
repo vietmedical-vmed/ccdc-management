@@ -11,7 +11,7 @@
   function parseHash() {
     const raw = (window.location.hash || "").replace(/^#/, "");
     const i = raw.indexOf("?");
-    return { path: (i < 0 ? raw : raw.slice(0, i)) || "/dashboard", query: new URLSearchParams(i < 0 ? "" : raw.slice(i + 1)) };
+    return { path: (i < 0 ? raw : raw.slice(0, i)) || "/phan-bo", query: new URLSearchParams(i < 0 ? "" : raw.slice(i + 1)) };
   }
   function currentPath() { return parseHash().path; }
   function currentQuery() { return parseHash().query; }
